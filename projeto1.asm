@@ -1,12 +1,11 @@
 # =========================================================
-# CABEÇALHO DA ATIVIDADE
 # Nome do Grupo: Letícia Medeiros Cavalcante e Sarah Pereira de Lima
 # Atividade: Projeto 01 (PE1) da 1a VA
 # Disciplina: Arquitetura e Organização de Computadores
 # Semestre Letivo: 2026.2
-# Breve descrição: Adição da separação das opções " --" dos comandos,
-#                  da validação do número do AP e do comando
-#                  limparAp.
+# Breve descrição: Tratamento da tecla Backspace na leitura do
+#                  teclado, permitindo que o usuário corrija o
+#                  que digitou antes de apertar Enter.
 # =========================================================
 
 # ---------------------------------------------------------
@@ -132,12 +131,20 @@ echo_wait:                           # Aguarda o display liberar para o echo
     li $t8, 10                       # Código ASCII do Enter (\n)
     beq $t4, $t8, read_fim           # Sai do loop de leitura se o usuário der Enter
 
+    li $t8, 8                        # Código ASCII do Backspace
+    beq $t4, $t8, read_apaga         # Se o usuário apagou um caractere, tratamos separado
+
     li $t8, 255                      # Limite do nosso buffer (o último byte fica para o \0)
     beq $t9, $t8, read_loop          # Se o buffer encheu, não avançamos mais para não estourar a memória
 
     addi $t2, $t2, 1                 # Avança o ponteiro do buffer
     addi $t9, $t9, 1                 # Conta mais um caractere guardado
     j read_loop                      # Espera a próxima tecla
+read_apaga:                          # Tratamento do Backspace
+    beqz $t9, read_loop              # Se o buffer estiver vazio, não tem o que apagar
+    addi $t2, $t2, -1                # Volta uma posição no nosso buffer
+    addi $t9, $t9, -1                # Desconta o caractere apagado
+    j read_loop                      # Espera a próxima tecla (ela sobrescreve o caractere apagado)
 read_fim:                            # Finalização do buffer
     li $t8, 0                        # Carrega o valor do \0
     sb $t8, 0($t2)                   # Trocamos o \n pelo \0 para facilitar a comparação de strings no parser
@@ -428,4 +435,3 @@ limpar_fim:                          # Encerramento do comando
     lw $ra, 0($sp)                   # Recupera nosso $ra original da pilha
     addi $sp, $sp, 4                 # Desaloca o espaço da pilha
     jr $ra                           # Retorna para o parser
- 
