@@ -1,13 +1,14 @@
 # =========================================================
+# CABEÇALHO DA ATIVIDADE
 # Nome do Grupo: Letícia Medeiros Cavalcante e Sarah Pereira de Lima
 # Atividade: Projeto 01 (PE1) da 1a VA
 # Disciplina: Arquitetura e Organização de Computadores
 # Semestre Letivo: 2026.2
-# Breve descrição: Adição da comparação de strings (strcmp) no
-#                  parser, que passa a reconhecer os comandos
-#                  infoGeral e formatar.
+# Breve descrição: Adição da separação das opções " --" dos comandos,
+#                  da validação do número do AP e do comando
+#                  limparAp.
 # =========================================================
- 
+
 # ---------------------------------------------------------
 # COMO CADA APARTAMENTO FICA GUARDADO NA NOSSA MEMÓRIA (328 bytes)
 #   offset   0: palavra  quantidade de moradores (0 = AP vazio)
@@ -18,40 +19,44 @@
 #   offset 248: 2 x 40B  veículos: modelo (30B) + placa (10B)
 # Para achar o AP usamos: (andar - 1) * 2 + (final - 1)  ->  101 = 0, 1202 = 23
 # ---------------------------------------------------------
- 
+
 .data                                # Seção de variáveis estáticas na memória
     banner:              .asciiz "LS-shell>> " # Banner com nossas iniciais exigido pelo projeto
     msg_invalido:        .asciiz "Comando invalido\n" # Mensagem padrão para comandos não reconhecidos
- 
-    cmd_infoGeral:       .asciiz "infoGeral" # Nome do comando que vamos comparar com o que o usuário digitou
-    cmd_formatar:        .asciiz "formatar"  # Nome do comando que vamos comparar com o que o usuário digitou
- 
+    msg_ap_invalido:     .asciiz "Falha: AP invalido\n" # Mensagem para quando o AP digitado não existe no condomínio
+
+    # Nomes dos comandos: o parser compara o que o usuário digitou com cada um deles
+    cmd_infoGeral:       .asciiz "infoGeral" # Comando que mostra o panorama de APs vazios e não vazios
+    cmd_formatar:        .asciiz "formatar"  # Comando que apaga todos os dados da execução atual
+    cmd_limparAp:        .asciiz "limparAp"  # Comando que exclui moradores e automóveis de um AP
+
     msg_info_nao_vazios: .asciiz "Nao vazios:\t" # Rótulo da linha de APs ocupados (sem acento por causa do MMIO)
     msg_info_vazios:     .asciiz "Vazios:\t\t"   # Rótulo da linha de APs desocupados
     msg_porcentagem_ini: .asciiz " ("            # Abre o parêntese da porcentagem
     msg_porcentagem_fim: .asciiz "%)\n"          # Fecha a porcentagem e quebra a linha
- 
+
     buffer_comando:      .space 256  # Reserva 256 bytes contíguos para armazenar o input do usuário
     buffer_int:          .space 12   # Espaço para converter um inteiro em texto antes de imprimir
     .align 2                         # Alinha o próximo dado em endereço múltiplo de 4 (exigido pelo lw)
+    opcoes:              .space 16   # Guardamos aqui o endereço de até 4 opções (4 palavras de 4 bytes)
     condominio:          .space 7872 # Memória do banco de dados: 24 APs gastando 328 bytes cada
- 
+
 .text                                # Seção onde começam as instruções de código
 .globl main                          # Declara a função main como ponto de entrada global
- 
+
 main:                                # Ponto de partida do programa
 loop_shell:                          # Loop infinito que mantém nosso terminal rodando
     la $a0, banner                   # Carrega o endereço do nosso banner no registrador $a0
     jal print_string_mmio            # Chama a função de imprimir e salva o retorno no $ra
- 
+
     la $a0, buffer_comando           # Passa o endereço do nosso buffer para guardar o texto
     jal read_string_mmio             # Chama a rotina de leitura do teclado byte a byte
- 
+
     la $a0, buffer_comando           # Passa o buffer preenchido como argumento
     jal parser_comandos              # Envia a string para o interpretador de comandos
- 
+
     j loop_shell                     # Retorna ao início do loop para pedir o próximo comando
- 
+
 # =========================================================
 # FUNÇÃO: print_string_mmio
 # =========================================================
@@ -71,14 +76,14 @@ aguarda_display:                     # Laço de espera ocupada (polling) do disp
     j print_loop                     # Reinicia o laço de leitura
 print_fim:                           # Fim da impressão
     jr $ra                           # Retorna para a rotina chamadora
- 
+
 # =========================================================
 # FUNÇÃO: print_int_mmio
 # =========================================================
 print_int_mmio:                      # Rotina para imprimir um inteiro não negativo via Display MMIO
     addi $sp, $sp, -4                # Abre espaço na pilha
     sw $ra, 0($sp)                   # Salva o $ra, pois vamos chamar print_string_mmio
- 
+
     la $t0, buffer_int               # Carrega o início do buffer de conversão
     addi $t0, $t0, 11                # Aponta para o último byte do buffer
     sb $zero, 0($t0)                 # Coloca o terminador nulo no final
@@ -92,14 +97,14 @@ int_loop:                            # Laço que monta os dígitos de trás para
     addi $t3, $t3, 48                # Converte o dígito para ASCII ('0' = 48)
     sb $t3, 0($t0)                   # Guarda o caractere no buffer
     bnez $t2, int_loop               # Repete enquanto ainda houver dígitos (imprime "0" se for zero)
- 
+
     move $a0, $t0                    # Passa o início do número montado
     jal print_string_mmio            # Imprime o número como string
- 
+
     lw $ra, 0($sp)                   # Recupera o $ra
     addi $sp, $sp, 4                 # Desaloca a pilha
     jr $ra                           # Retorna
- 
+
 # =========================================================
 # FUNÇÃO: read_string_mmio
 # =========================================================
@@ -113,7 +118,7 @@ read_loop:                           # Laço de espera pela digitação
     andi $t3, $t3, 1                 # Isola o bit Ready
     beqz $t3, read_loop              # Segura no loop até ter uma tecla nova
     lw $t4, 0($t1)                   # Lê a tecla digitada
- 
+
     li $t5, 0xFFFF0008               # Endereço controle display (Echo)
     li $t6, 0xFFFF000C               # Endereço dados display (Echo)
 echo_wait:                           # Aguarda o display liberar para o echo
@@ -121,15 +126,15 @@ echo_wait:                           # Aguarda o display liberar para o echo
     andi $t7, $t7, 1                 # Isola o bit pronto
     beqz $t7, echo_wait              # Segura o loop
     sw $t4, 0($t6)                   # Imprime a tecla dando feedback visual ao usuário
- 
+
     sb $t4, 0($t2)                   # Salva a tecla lida no buffer
- 
+
     li $t8, 10                       # Código ASCII do Enter (\n)
     beq $t4, $t8, read_fim           # Sai do loop de leitura se o usuário der Enter
- 
+
     li $t8, 255                      # Limite do nosso buffer (o último byte fica para o \0)
     beq $t9, $t8, read_loop          # Se o buffer encheu, não avançamos mais para não estourar a memória
- 
+
     addi $t2, $t2, 1                 # Avança o ponteiro do buffer
     addi $t9, $t9, 1                 # Conta mais um caractere guardado
     j read_loop                      # Espera a próxima tecla
@@ -137,7 +142,7 @@ read_fim:                            # Finalização do buffer
     li $t8, 0                        # Carrega o valor do \0
     sb $t8, 0($t2)                   # Trocamos o \n pelo \0 para facilitar a comparação de strings no parser
     jr $ra                           # Retorna
- 
+
 # =========================================================
 # FUNÇÃO: strcmp
 # =========================================================
@@ -156,47 +161,158 @@ strcmp_diferente:                    # Caso as strings sejam diferentes
 strcmp_igual:                        # Caso as strings sejam iguais
     li $v0, 0                        # Devolvemos 0 no $v0
     jr $ra                           # Retorna para a rotina chamadora
- 
+
 # =========================================================
 # FUNÇÃO: parser_comandos
 # =========================================================
 parser_comandos:                     # Rotina de interpretação (decifra o que o usuário quer)
-    addi $sp, $sp, -8                # Abre um espaço de 8 bytes na pilha (stack)
+    addi $sp, $sp, -12               # Abre um espaço de 12 bytes na pilha (stack)
     sw $ra, 0($sp)                   # Salva nosso $ra na pilha para não perdermos a volta após os jal
     sw $s0, 4($sp)                   # Salva o $s0 também, porque vamos usá-lo aqui
+    sw $s1, 8($sp)                   # Salva o $s1, onde vamos guardar a quantidade de opções
     move $s0, $a0                    # Guardamos o endereço do buffer no $s0, já que o strcmp mexe no $a0
- 
+
     lb $t0, 0($s0)                   # Lê o primeiro caractere digitado no buffer
     beqz $t0, parser_fim             # Se for apenas Enter (agora virou \0), ignoramos e voltamos para o prompt
- 
+
+    move $a0, $s0                    # Passa o comando digitado para separarmos as opções
+    jal separa_opcoes                # Corta a string em cada " --" e guarda onde começa cada opção
+    move $s1, $v0                    # Guardamos no $s1 quantas opções o usuário digitou
+
     move $a0, $s0                    # Passa o comando digitado como 1º argumento
     la $a1, cmd_infoGeral            # Passa a string "infoGeral" como 2º argumento
     jal strcmp                       # Chama nossa rotina de comparação
     beqz $v0, executa_infoGeral      # Se deu 0 (iguais), pulamos para o infoGeral
- 
+
     move $a0, $s0                    # Passa o comando digitado como 1º argumento
     la $a1, cmd_formatar             # Passa a string "formatar" como 2º argumento
     jal strcmp                       # Chama nossa rotina de comparação
     beqz $v0, executa_formatar       # Se deu 0 (iguais), pulamos para o formatar
- 
+
+    move $a0, $s0                    # Passa o comando digitado como 1º argumento
+    la $a1, cmd_limparAp             # Passa a string "limparAp" como 2º argumento
+    jal strcmp                       # Chama nossa rotina de comparação
+    beqz $v0, executa_limparAp       # Se deu 0 (iguais), pulamos para o limparAp
+
+comando_invalido:                    # Chegamos aqui se o comando não existe ou veio com opções erradas
     la $a0, msg_invalido             # Caso o comando seja desconhecido, puxa a mensagem de erro
     jal print_string_mmio            # Chama a função de print para exibir "Comando invalido"
     j parser_fim                     # Vai para o encerramento do interpretador
- 
+
 executa_infoGeral:                   # Desvio do comando infoGeral
+    bnez $s1, comando_invalido       # O infoGeral não tem opções; se o usuário mandou alguma, é inválido
     jal comando_infoGeral            # Chama a rotina que mostra o panorama do condomínio
     j parser_fim                     # Vai para o encerramento do interpretador
- 
+
 executa_formatar:                    # Desvio do comando formatar
+    bnez $s1, comando_invalido       # O formatar também não tem opções
     jal comando_formatar             # Chama a rotina que apaga os dados da memória
     j parser_fim                     # Vai para o encerramento do interpretador
- 
+
+executa_limparAp:                    # Desvio do comando limparAp
+    li $t0, 1                        # O limparAp precisa de exatamente 1 opção (o número do AP)
+    bne $s1, $t0, comando_invalido   # Se veio outra quantidade de opções, é inválido
+    la $t0, opcoes                   # Carrega o endereço do nosso vetor de opções
+    lw $a0, 0($t0)                   # Pega o endereço da 1ª opção (o número do AP digitado)
+    jal comando_limparAp             # Chama a rotina que esvazia o AP
+    j parser_fim                     # Vai para o encerramento do interpretador
+
 parser_fim:                          # Encerramento do interpretador
     lw $ra, 0($sp)                   # Recupera nosso $ra original da pilha
     lw $s0, 4($sp)                   # Recupera o $s0 original da pilha
-    addi $sp, $sp, 8                 # Desaloca o espaço da pilha (restaura o $sp)
+    lw $s1, 8($sp)                   # Recupera o $s1 original da pilha
+    addi $sp, $sp, 12                # Desaloca o espaço da pilha (restaura o $sp)
     jr $ra                           # Retorna para o loop do shell
- 
+
+# =========================================================
+# FUNÇÃO: separa_opcoes
+# =========================================================
+separa_opcoes:                       # Rotina que divide o comando em cada " --" | $a0 = buffer, $v0 = qtd de opções
+    li $v0, 0                        # Começamos com zero opções encontradas
+    la $t5, opcoes                   # Carrega o endereço do nosso vetor de opções
+sep_loop:                            # Laço que anda pela string procurando " --"
+    lb $t0, 0($a0)                   # Carrega 1 byte (caractere atual)
+    beqz $t0, sep_fim                # Se chegamos no \0, terminamos de procurar
+    li $t1, 32                       # Código ASCII do espaço (0x20)
+    bne $t0, $t1, sep_proximo        # Se não for espaço, não é começo de opção
+    lb $t2, 1($a0)                   # Olha o caractere seguinte
+    li $t1, 45                       # Código ASCII do '-' (0x2d)
+    bne $t2, $t1, sep_proximo        # Se não for '-', era só um espaço normal (ex: "Claude Shannon")
+    lb $t2, 2($a0)                   # Olha mais um caractere à frente
+    bne $t2, $t1, sep_proximo        # Precisa ter dois '-' seguidos para ser opção
+
+    sb $zero, 0($a0)                 # Trocamos o espaço por \0, encerrando a parte anterior da string
+    li $t3, 4                        # Nosso vetor guarda no máximo 4 opções
+    bge $v0, $t3, sep_conta          # Se já guardamos 4, só contamos (o comando vai acusar o excesso)
+    sll $t4, $v0, 2                  # Multiplica a posição por 4 (cada endereço ocupa 1 palavra)
+    add $t4, $t5, $t4                # Calcula onde guardar dentro do vetor
+    addi $t6, $a0, 3                 # A opção começa logo depois do " --" (3 caracteres)
+    sw $t6, 0($t4)                   # Guarda o endereço do início da opção
+sep_conta:                           # Conta a opção encontrada
+    addi $v0, $v0, 1                 # Mais uma opção
+    addi $a0, $a0, 3                 # Pula o " --" para continuar procurando
+    j sep_loop                       # Reinicia o laço
+sep_proximo:                         # Caractere comum
+    addi $a0, $a0, 1                 # Avança para o próximo caractere
+    j sep_loop                       # Reinicia o laço
+sep_fim:                             # Fim da separação
+    jr $ra                           # Retorna com a quantidade de opções no $v0
+
+# =========================================================
+# FUNÇÃO: converte_ap
+# =========================================================
+converte_ap:                         # Transforma o texto do AP em índice | $a0 = string, $v0 = índice (0 a 23) ou -1
+    li $t0, 0                        # $t0 vai acumular o número digitado
+    li $t1, 0                        # $t1 conta quantos dígitos já lemos
+conv_loop:                           # Laço que lê os dígitos um por um
+    lb $t2, 0($a0)                   # Carrega 1 byte (caractere atual)
+    beqz $t2, conv_valida            # Se chegamos no \0, vamos conferir o número
+    li $t3, 48                       # Código ASCII do '0'
+    blt $t2, $t3, conv_invalido      # Abaixo de '0' não é dígito
+    li $t3, 57                       # Código ASCII do '9'
+    bgt $t2, $t3, conv_invalido      # Acima de '9' não é dígito
+    addi $t2, $t2, -48               # Converte o caractere para o valor numérico
+    li $t3, 10                       # Base 10
+    mul $t0, $t0, $t3                # Desloca o número acumulado uma casa decimal
+    add $t0, $t0, $t2                # Soma o novo dígito
+    addi $t1, $t1, 1                 # Mais um dígito lido
+    li $t3, 4                        # Um AP tem no máximo 4 dígitos (ex: 1202)
+    bgt $t1, $t3, conv_invalido      # Se passou disso, é inválido
+    addi $a0, $a0, 1                 # Avança para o próximo caractere
+    j conv_loop                      # Reinicia o laço
+conv_valida:                         # Confere se o número é um AP que existe
+    li $t3, 3                        # Um AP tem no mínimo 3 dígitos (ex: 101)
+    blt $t1, $t3, conv_invalido      # Menos que isso (ou vazio) é inválido
+    li $t3, 100                      # Dividimos por 100 para separar andar e final
+    div $t0, $t3                     # Ex: 1102 / 100
+    mflo $t4                         # Quociente = andar (11)
+    mfhi $t5                         # Resto = final do AP (2)
+    li $t3, 1                        # Menor andar e menor final válidos
+    blt $t4, $t3, conv_invalido      # Andar abaixo de 1 é inválido
+    blt $t5, $t3, conv_invalido      # Final abaixo de 01 é inválido
+    li $t3, 12                       # Maior andar do condomínio
+    bgt $t4, $t3, conv_invalido      # Andar acima de 12 é inválido
+    li $t3, 2                        # Maior final (2 APs por andar)
+    bgt $t5, $t3, conv_invalido      # Final acima de 02 é inválido
+    addi $t4, $t4, -1                # andar - 1
+    sll $t4, $t4, 1                  # (andar - 1) * 2
+    addi $t5, $t5, -1                # final - 1
+    add $v0, $t4, $t5                # Índice = (andar - 1) * 2 + (final - 1)
+    jr $ra                           # Retorna com o índice no $v0
+conv_invalido:                       # Caso o AP não exista
+    li $v0, -1                       # Devolvemos -1 para avisar que é inválido
+    jr $ra                           # Retorna para a rotina chamadora
+
+# =========================================================
+# FUNÇÃO: endereco_ap
+# =========================================================
+endereco_ap:                         # Calcula onde o AP começa na memória | $a0 = índice, $v0 = endereço
+    li $t0, 328                      # Tamanho de cada AP em bytes
+    mul $t0, $a0, $t0                # índice * 328
+    la $v0, condominio               # Início do nosso banco de dados
+    add $v0, $v0, $t0                # Soma o deslocamento para chegar no AP
+    jr $ra                           # Retorna com o endereço no $v0
+
 # =========================================================
 # FUNÇÃO: comando_infoGeral
 # =========================================================
@@ -205,12 +321,12 @@ comando_infoGeral:                   # Conta e exibe APs vazios e não vazios
     sw $ra, 0($sp)                   # Salva o $ra (vamos chamar outras funções)
     sw $s0, 4($sp)                   # Salva o $s0 para usar como contador
     sw $s1, 8($sp)                   # Salva o $s1 para usar como contador
- 
+
     li $s0, 0                        # $s0 = quantidade de APs vazios
     li $s1, 0                        # $s1 = quantidade de APs não vazios
     li $t2, 24                       # Total de APs no condomínio (12 andares x 2 APs)
     la $t3, condominio               # Ponteiro para o primeiro AP
- 
+
 loop_contagem:                       # Percorre todos os APs
     beqz $t2, exibe_relatorio        # Quando acabarem os APs, vai exibir o resultado
     lw $t4, 0($t3)                   # Lê a primeira palavra (4 bytes) do AP (0 = AP vazio)
@@ -223,22 +339,22 @@ proximo_ap:                          # Avança na memória
     addi $t3, $t3, 328               # Pula os 328 bytes do AP atual
     addi $t2, $t2, -1                # Um AP a menos para verificar
     j loop_contagem                  # Repete o laço
- 
+
 exibe_relatorio:                     # Imprime as duas linhas do relatório
     la $a0, msg_info_nao_vazios      # Rótulo "Nao vazios:"
     move $a1, $s1                    # Quantidade de não vazios
     jal imprime_linha_info           # Imprime a linha com quantidade e porcentagem
- 
+
     la $a0, msg_info_vazios          # Rótulo "Vazios:"
     move $a1, $s0                    # Quantidade de vazios
     jal imprime_linha_info           # Imprime a linha com quantidade e porcentagem
- 
+
     lw $ra, 0($sp)                   # Restaura o $ra
     lw $s0, 4($sp)                   # Restaura o $s0
     lw $s1, 8($sp)                   # Restaura o $s1
     addi $sp, $sp, 12                # Desaloca a pilha
     jr $ra                           # Retorna para quem chamou
- 
+
 # =========================================================
 # FUNÇÃO: imprime_linha_info
 # =========================================================
@@ -247,30 +363,30 @@ imprime_linha_info:                  # Imprime "<rótulo><qtd> (<pct>%)" | $a0 =
     sw $ra, 0($sp)                   # Salva o $ra
     sw $s0, 4($sp)                   # Salva o $s0
     move $s0, $a1                    # Guarda a quantidade (as chamadas abaixo sobrescrevem $t e $a)
- 
+
     jal print_string_mmio            # Imprime o rótulo que veio em $a0
- 
+
     move $a0, $s0                    # Passa a quantidade
     jal print_int_mmio               # Imprime a quantidade
- 
+
     la $a0, msg_porcentagem_ini      # Carrega " ("
     jal print_string_mmio            # Imprime " ("
- 
+
     li $t0, 100                      # Fator para calcular a porcentagem
     mul $t0, $s0, $t0                # quantidade x 100
     li $t1, 24                       # Total de APs
     div $t0, $t1                     # (quantidade x 100) / 24
     mflo $a0                         # Pega o quociente (porcentagem inteira)
     jal print_int_mmio               # Imprime a porcentagem
- 
+
     la $a0, msg_porcentagem_fim      # Carrega "%)\n"
     jal print_string_mmio            # Imprime "%)" e quebra a linha
- 
+
     lw $ra, 0($sp)                   # Restaura o $ra
     lw $s0, 4($sp)                   # Restaura o $s0
     addi $sp, $sp, 8                 # Desaloca a pilha
     jr $ra                           # Retorna
- 
+
 # =========================================================
 # FUNÇÃO: comando_formatar
 # =========================================================
@@ -283,4 +399,33 @@ formatar_loop:                       # Laço para zerar a memória
     addi $t1, $t1, -1                # Diminui o contador de palavras que faltam
     bnez $t1, formatar_loop          # Continua no loop até zerar tudo
     jr $ra                           # Retorna com todos os APs vazios
+
+# =========================================================
+# FUNÇÃO: comando_limparAp
+# =========================================================
+comando_limparAp:                    # Exclui moradores e automóveis de um AP | $a0 = string com o número do AP
+    addi $sp, $sp, -4                # Abre espaço na pilha
+    sw $ra, 0($sp)                   # Salva nosso $ra, pois vamos chamar outras funções
+
+    jal converte_ap                  # Transforma o texto do AP no índice
+    bltz $v0, limpar_invalido        # Se veio -1, o AP não existe
+
+    move $a0, $v0                    # Passa o índice do AP
+    jal endereco_ap                  # Descobre onde o AP começa na memória
+    li $t1, 82                       # Quantidade de palavras de um AP (328 bytes / 4)
+limpar_loop:                         # Laço para zerar o AP
+    sw $zero, 0($v0)                 # Zera 4 bytes de uma vez
+    addi $v0, $v0, 4                 # Avança para a próxima palavra
+    addi $t1, $t1, -1                # Diminui o contador de palavras que faltam
+    bnez $t1, limpar_loop            # Continua no loop até zerar o AP inteiro
+    j limpar_fim                     # AP vazio: vai para o encerramento
+
+limpar_invalido:                     # Caso o AP digitado não exista
+    la $a0, msg_ap_invalido          # Puxa a mensagem "Falha: AP invalido"
+    jal print_string_mmio            # Exibe a mensagem no terminal
+
+limpar_fim:                          # Encerramento do comando
+    lw $ra, 0($sp)                   # Recupera nosso $ra original da pilha
+    addi $sp, $sp, 4                 # Desaloca o espaço da pilha
+    jr $ra                           # Retorna para o parser
  
