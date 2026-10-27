@@ -3,9 +3,9 @@
 # Atividade: Projeto 01 (PE1) da 1a VA
 # Disciplina: Arquitetura e Organização de Computadores
 # Semestre Letivo: 2026.2
-# Breve descrição: Tratamento da tecla Backspace na leitura do
-#                  teclado, permitindo que o usuário corrija o
-#                  que digitou antes de apertar Enter.
+# Breve descrição: Implementação do comando addMorador, que cadastra
+#                  um morador em um AP respeitando o limite de 6
+#                  moradores, e da rotina strcpy de cópia de strings.
 # =========================================================
 
 # ---------------------------------------------------------
@@ -23,11 +23,13 @@
     banner:              .asciiz "LS-shell>> " # Banner com nossas iniciais exigido pelo projeto
     msg_invalido:        .asciiz "Comando invalido\n" # Mensagem padrão para comandos não reconhecidos
     msg_ap_invalido:     .asciiz "Falha: AP invalido\n" # Mensagem para quando o AP digitado não existe no condomínio
+    msg_max_moradores:   .asciiz "Falha: AP com numero max de moradores\n" # Mensagem para quando o AP já tem 6 moradores
 
     # Nomes dos comandos: o parser compara o que o usuário digitou com cada um deles
     cmd_infoGeral:       .asciiz "infoGeral" # Comando que mostra o panorama de APs vazios e não vazios
     cmd_formatar:        .asciiz "formatar"  # Comando que apaga todos os dados da execução atual
     cmd_limparAp:        .asciiz "limparAp"  # Comando que exclui moradores e automóveis de um AP
+    cmd_addMorador:      .asciiz "addMorador" # Comando que cadastra um morador em um AP
 
     msg_info_nao_vazios: .asciiz "Nao vazios:\t" # Rótulo da linha de APs ocupados (sem acento por causa do MMIO)
     msg_info_vazios:     .asciiz "Vazios:\t\t"   # Rótulo da linha de APs desocupados
@@ -170,6 +172,23 @@ strcmp_igual:                        # Caso as strings sejam iguais
     jr $ra                           # Retorna para a rotina chamadora
 
 # =========================================================
+# FUNÇÃO: strcpy
+# =========================================================
+strcpy:                              # Copia uma string com limite | $a0 = destino, $a1 = origem, $a2 = máx. de caracteres
+strcpy_loop:                         # Laço que copia caractere a caractere
+    beqz $a2, strcpy_fim             # Se já copiamos o máximo permitido, paramos (o resto é cortado)
+    lb $t0, 0($a1)                   # Carrega 1 byte da string de origem
+    beqz $t0, strcpy_fim             # Se chegamos no \0 da origem, terminamos de copiar
+    sb $t0, 0($a0)                   # Grava o caractere no destino
+    addi $a0, $a0, 1                 # Avança no destino
+    addi $a1, $a1, 1                 # Avança na origem
+    addi $a2, $a2, -1                # Um caractere a menos que ainda cabe
+    j strcpy_loop                    # Reinicia o laço de cópia
+strcpy_fim:                          # Fim da cópia
+    sb $zero, 0($a0)                 # Coloca o \0 para fechar a string copiada
+    jr $ra                           # Retorna para a rotina chamadora
+
+# =========================================================
 # FUNÇÃO: parser_comandos
 # =========================================================
 parser_comandos:                     # Rotina de interpretação (decifra o que o usuário quer)
@@ -201,6 +220,11 @@ parser_comandos:                     # Rotina de interpretação (decifra o que 
     jal strcmp                       # Chama nossa rotina de comparação
     beqz $v0, executa_limparAp       # Se deu 0 (iguais), pulamos para o limparAp
 
+    move $a0, $s0                    # Passa o comando digitado como 1º argumento
+    la $a1, cmd_addMorador           # Passa a string "addMorador" como 2º argumento
+    jal strcmp                       # Chama nossa rotina de comparação
+    beqz $v0, executa_addMorador     # Se deu 0 (iguais), pulamos para o addMorador
+
 comando_invalido:                    # Chegamos aqui se o comando não existe ou veio com opções erradas
     la $a0, msg_invalido             # Caso o comando seja desconhecido, puxa a mensagem de erro
     jal print_string_mmio            # Chama a função de print para exibir "Comando invalido"
@@ -222,6 +246,17 @@ executa_limparAp:                    # Desvio do comando limparAp
     la $t0, opcoes                   # Carrega o endereço do nosso vetor de opções
     lw $a0, 0($t0)                   # Pega o endereço da 1ª opção (o número do AP digitado)
     jal comando_limparAp             # Chama a rotina que esvazia o AP
+    j parser_fim                     # Vai para o encerramento do interpretador
+
+executa_addMorador:                  # Desvio do comando addMorador
+    li $t0, 2                        # O addMorador precisa de exatamente 2 opções (AP e nome)
+    bne $s1, $t0, comando_invalido   # Se veio outra quantidade de opções, é inválido
+    la $t0, opcoes                   # Carrega o endereço do nosso vetor de opções
+    lw $a0, 0($t0)                   # 1ª opção: o número do AP
+    lw $a1, 4($t0)                   # 2ª opção: o nome do morador
+    lb $t1, 0($a1)                   # Olha o primeiro caractere do nome
+    beqz $t1, comando_invalido       # Nome vazio ("--" sem nada depois) não vale
+    jal comando_addMorador           # Chama a rotina que cadastra o morador
     j parser_fim                     # Vai para o encerramento do interpretador
 
 parser_fim:                          # Encerramento do interpretador
@@ -434,4 +469,54 @@ limpar_invalido:                     # Caso o AP digitado não exista
 limpar_fim:                          # Encerramento do comando
     lw $ra, 0($sp)                   # Recupera nosso $ra original da pilha
     addi $sp, $sp, 4                 # Desaloca o espaço da pilha
+    jr $ra                           # Retorna para o parser
+
+# =========================================================
+# FUNÇÃO: comando_addMorador
+# =========================================================
+comando_addMorador:                  # Cadastra um morador | $a0 = string do AP, $a1 = nome do morador
+    addi $sp, $sp, -12               # Abre um espaço de 12 bytes na pilha
+    sw $ra, 0($sp)                   # Salva nosso $ra, pois vamos chamar outras funções
+    sw $s0, 4($sp)                   # Salva o $s0, onde vamos guardar o endereço do AP
+    sw $s1, 8($sp)                   # Salva o $s1, onde vamos guardar o endereço do nome
+    move $s1, $a1                    # Guardamos o nome, já que as próximas chamadas mexem nos $a
+
+    jal converte_ap                  # Transforma o texto do AP no índice
+    bltz $v0, add_mor_invalido       # Se veio -1, o AP não existe
+
+    move $a0, $v0                    # Passa o índice do AP
+    jal endereco_ap                  # Descobre onde o AP começa na memória
+    move $s0, $v0                    # $s0 = início do AP
+
+    lw $t0, 0($s0)                   # Lê a quantidade de moradores (primeira palavra do AP)
+    li $t1, 6                        # Limite do regimento: 6 moradores por AP
+    bge $t0, $t1, add_mor_cheio      # Se já tem 6, não deixamos cadastrar o 7º
+
+    li $t1, 40                       # Cada nome ocupa 40 bytes
+    mul $t1, $t0, $t1                # Pula os nomes que já existem (quantidade x 40)
+    addi $t1, $t1, 4                 # Os nomes começam depois da palavra da quantidade
+    add $a0, $s0, $t1                # Destino: próxima vaga livre de nome
+    move $a1, $s1                    # Origem: nome digitado pelo usuário
+    li $a2, 39                       # No máximo 39 caracteres (o 40º byte é do \0)
+    jal strcpy                       # Copia o nome para a vaga
+
+    lw $t0, 0($s0)                   # Lê de novo a quantidade de moradores
+    addi $t0, $t0, 1                 # Mais um morador (se era 0, o AP deixa de ser vazio)
+    sw $t0, 0($s0)                   # Grava a nova quantidade
+    j add_mor_fim                    # Cadastro feito: vai para o encerramento
+
+add_mor_invalido:                    # Caso o AP digitado não exista
+    la $a0, msg_ap_invalido          # Puxa a mensagem "Falha: AP invalido"
+    jal print_string_mmio            # Exibe a mensagem no terminal
+    j add_mor_fim                    # Vai para o encerramento
+
+add_mor_cheio:                       # Caso o AP já tenha 6 moradores
+    la $a0, msg_max_moradores        # Puxa a mensagem "Falha: AP com numero max de moradores"
+    jal print_string_mmio            # Exibe a mensagem no terminal
+
+add_mor_fim:                         # Encerramento do comando
+    lw $ra, 0($sp)                   # Recupera nosso $ra original da pilha
+    lw $s0, 4($sp)                   # Recupera o $s0 original da pilha
+    lw $s1, 8($sp)                   # Recupera o $s1 original da pilha
+    addi $sp, $sp, 12                # Desaloca o espaço da pilha
     jr $ra                           # Retorna para o parser
