@@ -3,9 +3,10 @@
 # Atividade: Projeto 01 (PE1) da 1a VA
 # Disciplina: Arquitetura e Organização de Computadores
 # Semestre Letivo: 2026.2
-# Breve descrição: Implementação do comando rmvMorador, que remove
-#                  um morador de um AP pelo nome, compacta a lista
-#                  de nomes e, se o AP esvaziar, apaga os veículos.
+# Breve descrição: Implementação do comando addAuto (e addAuto com A
+#                  maiúsculo), que cadastra um carro ou moto em um AP
+#                  respeitando a regra de 1 carro OU até 2 motos,
+#                  sem mistura. AP vazio também é recusado.
 # =========================================================
 
 # ---------------------------------------------------------
@@ -25,282 +26,303 @@
     msg_ap_invalido:     .asciiz "Falha: AP invalido\n" # Mensagem para quando o AP digitado não existe no condomínio
     msg_max_moradores:   .asciiz "Falha: AP com numero max de moradores\n" # Mensagem para quando o AP já tem 6 moradores
     msg_nao_encontrado:  .asciiz "Falha: morador nao encontrado\n" # Mensagem quando o nome não consta no AP
+    msg_max_autos:       .asciiz "Falha: AP com numero max de automoveis\n" # Mensagem quando não cabe mais veículo
+    msg_tipo_invalido:   .asciiz "Falha: tipo invalido\n" # Mensagem para tipo diferente de "c" ou "m"
+    msg_ap_vazio_auto:   .asciiz "Falha: AP vazio\n"      # AP sem moradores não pode ter veículo
 
     # Nomes dos comandos: o parser compara o que o usuário digitou com cada um deles
-    cmd_infoGeral:       .asciiz "infoGeral"   # Comando que mostra o panorama de APs vazios e não vazios
-    cmd_formatar:        .asciiz "formatar"    # Comando que apaga todos os dados da execução atual
-    cmd_limparAp:        .asciiz "limparAp"    # Comando que exclui moradores e automóveis de um AP
-    cmd_addMorador:      .asciiz "addMorador"  # Comando que cadastra um morador em um AP
-    cmd_infoAp:          .asciiz "infoAp"      # Comando que exibe as informações de um AP ou de todos
-    cmd_rmvMorador:      .asciiz "rmvMorador"  # Comando que remove um morador de um AP pelo nome
+    cmd_infoGeral:       .asciiz "infoGeral"   # Mostra o panorama de APs vazios e não vazios
+    cmd_formatar:        .asciiz "formatar"    # Apaga todos os dados da execução atual
+    cmd_limparAp:        .asciiz "limparAp"    # Exclui moradores e automóveis de um AP
+    cmd_addMorador:      .asciiz "addMorador"  # Cadastra um morador em um AP
+    cmd_infoAp:          .asciiz "infoAp"      # Exibe as informações de um AP ou de todos
+    cmd_rmvMorador:      .asciiz "rmvMorador"  # Remove um morador de um AP pelo nome
+    cmd_addAuto_min:     .asciiz "addAuto"     # Cadastra um veículo (variante com 'a' minúsculo)
+    cmd_addAuto_mai:     .asciiz "AddAuto"     # Cadastra um veículo (variante com 'A' maiúsculo, aceita por convenção)
 
-    msg_info_nao_vazios: .asciiz "Nao vazios:\t" # Rótulo da linha de APs ocupados
-    msg_info_vazios:     .asciiz "Vazios:\t\t"   # Rótulo da linha de APs desocupados
+    msg_info_nao_vazios: .asciiz "Nao vazios:\t" # Rótulo de APs ocupados
+    msg_info_vazios:     .asciiz "Vazios:\t\t"   # Rótulo de APs desocupados
     msg_porcentagem_ini: .asciiz " ("            # Abre o parêntese da porcentagem
     msg_porcentagem_fim: .asciiz "%)\n"          # Fecha a porcentagem e quebra a linha
 
     msg_ap_label:        .asciiz "AP: "          # Rótulo da linha com o número do AP
-    msg_ap_vazio:        .asciiz "Apartamento vazio\n" # Texto para AP sem moradores
+    msg_ap_vazio:        .asciiz "Apartamento vazio\n" # AP sem moradores
     msg_moradores_label: .asciiz "Moradores:\n"  # Cabeçalho da lista de moradores
     msg_carro_label:     .asciiz "Carro:\n"      # Cabeçalho da seção de carro
     msg_moto_label:      .asciiz "Moto:\n"       # Cabeçalho da seção de motos
-    msg_sep_veiculo:     .asciiz " / "           # Separador entre modelo e placa de cada veículo
+    msg_sep_veiculo:     .asciiz " / "           # Separador entre modelo e placa
     msg_newline:         .asciiz "\n"            # Quebra de linha genérica
-    str_all:             .asciiz "all"           # Constante para comparar com a opção --all
+    str_all:             .asciiz "all"           # Constante para a opção --all do infoAp
 
-    buffer_comando:      .space 256  # Reserva 256 bytes contíguos para armazenar o input do usuário
-    buffer_int:          .space 12   # Espaço para converter um inteiro em texto antes de imprimir
-    .align 2                         # Alinha o próximo dado em endereço múltiplo de 4 (exigido pelo lw)
-    opcoes:              .space 16   # Guardamos aqui o endereço de até 4 opções (4 palavras de 4 bytes)
-    condominio:          .space 7872 # Memória do banco de dados: 24 APs gastando 328 bytes cada
+    buffer_comando:      .space 256  # Reserva 256 bytes para o input do usuário
+    buffer_int:          .space 12   # Buffer de conversão de inteiro para texto
+    .align 2                         # Alinha em múltiplo de 4 bytes
+    opcoes:              .space 16   # Vetor de até 4 endereços de opções
+    condominio:          .space 7872 # 24 APs x 328 bytes
 
-.text                                # Seção onde começam as instruções de código
-.globl main                          # Declara a função main como ponto de entrada global
+.text
+.globl main
 
-main:                                # Ponto de partida do programa
-loop_shell:                          # Loop infinito que mantém nosso terminal rodando
-    la $a0, banner                   # Carrega o endereço do nosso banner no registrador $a0
-    jal print_string_mmio            # Chama a função de imprimir e salva o retorno no $ra
+main:
+loop_shell:
+    la $a0, banner
+    jal print_string_mmio
 
-    la $a0, buffer_comando           # Passa o endereço do nosso buffer para guardar o texto
-    jal read_string_mmio             # Chama a rotina de leitura do teclado byte a byte
+    la $a0, buffer_comando
+    jal read_string_mmio
 
-    la $a0, buffer_comando           # Passa o buffer preenchido como argumento
-    jal parser_comandos              # Envia a string para o interpretador de comandos
+    la $a0, buffer_comando
+    jal parser_comandos
 
-    j loop_shell                     # Retorna ao início do loop para pedir o próximo comando
+    j loop_shell
 
 # =========================================================
 # FUNÇÃO: print_string_mmio
 # =========================================================
-print_string_mmio:                   # Rotina para imprimir strings no terminal via Display MMIO
-    li $t0, 0xFFFF0008               # Carrega o endereço do Transmitter Control
-    li $t1, 0xFFFF000C               # Carrega o endereço do Transmitter Data
-    move $t2, $a0                    # Copia o endereço da string recebida para iteração
-print_loop:                          # Laço para iterar a string
-    lb $t3, 0($t2)                   # Carrega 1 byte (caractere atual)
-    beqz $t3, print_fim              # Sai da função se encontrar o caractere nulo
-aguarda_display:                     # Laço de espera ocupada (polling) do display
-    lw $t4, 0($t0)                   # Lê o status atual do controle
-    andi $t4, $t4, 1                 # Isola o bit 0 (Ready)
-    beqz $t4, aguarda_display        # Continua no loop se o hardware estiver ocupado
-    sw $t3, 0($t1)                   # Envia o caractere para exibição
-    addi $t2, $t2, 1                 # Avança para o próximo caractere
-    j print_loop                     # Reinicia o laço de leitura
-print_fim:                           # Fim da impressão
-    jr $ra                           # Retorna para a rotina chamadora
+print_string_mmio:
+    li $t0, 0xFFFF0008
+    li $t1, 0xFFFF000C
+    move $t2, $a0
+print_loop:
+    lb $t3, 0($t2)
+    beqz $t3, print_fim
+aguarda_display:
+    lw $t4, 0($t0)
+    andi $t4, $t4, 1
+    beqz $t4, aguarda_display
+    sw $t3, 0($t1)
+    addi $t2, $t2, 1
+    j print_loop
+print_fim:
+    jr $ra
 
 # =========================================================
 # FUNÇÃO: print_int_mmio
 # =========================================================
-print_int_mmio:                      # Rotina para imprimir um inteiro não negativo via Display MMIO
-    addi $sp, $sp, -4                # Abre espaço na pilha
-    sw $ra, 0($sp)                   # Salva o $ra, pois vamos chamar print_string_mmio
-
-    la $t0, buffer_int               # Carrega o início do buffer de conversão
-    addi $t0, $t0, 11                # Aponta para o último byte do buffer
-    sb $zero, 0($t0)                 # Coloca o terminador nulo no final
-    li $t1, 10                       # Divisor 10 para separar os dígitos
-    move $t2, $a0                    # Copia o número recebido
-int_loop:                            # Laço que monta os dígitos de trás para frente
-    addi $t0, $t0, -1                # Recua uma posição no buffer
-    divu $t2, $t1                    # Divide o número por 10
-    mfhi $t3                         # Resto = dígito atual
-    mflo $t2                         # Quociente = número que sobra
-    addi $t3, $t3, 48                # Converte o dígito para ASCII ('0' = 48)
-    sb $t3, 0($t0)                   # Guarda o caractere no buffer
-    bnez $t2, int_loop               # Repete enquanto ainda houver dígitos
-
-    move $a0, $t0                    # Passa o início do número montado
-    jal print_string_mmio            # Imprime o número como string
-
-    lw $ra, 0($sp)                   # Recupera o $ra
-    addi $sp, $sp, 4                 # Desaloca a pilha
-    jr $ra                           # Retorna
+print_int_mmio:
+    addi $sp, $sp, -4
+    sw $ra, 0($sp)
+    la $t0, buffer_int
+    addi $t0, $t0, 11
+    sb $zero, 0($t0)
+    li $t1, 10
+    move $t2, $a0
+int_loop:
+    addi $t0, $t0, -1
+    divu $t2, $t1
+    mfhi $t3
+    mflo $t2
+    addi $t3, $t3, 48
+    sb $t3, 0($t0)
+    bnez $t2, int_loop
+    move $a0, $t0
+    jal print_string_mmio
+    lw $ra, 0($sp)
+    addi $sp, $sp, 4
+    jr $ra
 
 # =========================================================
 # FUNÇÃO: read_string_mmio
 # =========================================================
-read_string_mmio:                    # Rotina para capturar a digitação do usuário via Keyboard MMIO
-    li $t0, 0xFFFF0000               # Carrega o endereço do Receiver Control
-    li $t1, 0xFFFF0004               # Carrega o endereço do Receiver Data
-    move $t2, $a0                    # Usa o $t2 para iterar no nosso buffer
-    li $t9, 0                        # Usa o $t9 para contar quantos caracteres já guardamos
-read_loop:                           # Laço de espera pela digitação
-    lw $t3, 0($t0)                   # Lê o status do teclado
-    andi $t3, $t3, 1                 # Isola o bit Ready
-    beqz $t3, read_loop              # Segura no loop até ter uma tecla nova
-    lw $t4, 0($t1)                   # Lê a tecla digitada
-
-    li $t5, 0xFFFF0008               # Endereço controle display (Echo)
-    li $t6, 0xFFFF000C               # Endereço dados display (Echo)
-echo_wait:                           # Aguarda o display liberar para o echo
-    lw $t7, 0($t5)                   # Lê o controle do display
-    andi $t7, $t7, 1                 # Isola o bit pronto
-    beqz $t7, echo_wait              # Segura o loop
-    sw $t4, 0($t6)                   # Imprime a tecla dando feedback visual ao usuário
-
-    sb $t4, 0($t2)                   # Salva a tecla lida no buffer
-
-    li $t8, 10                       # Código ASCII do Enter (\n)
-    beq $t4, $t8, read_fim           # Sai do loop de leitura se o usuário der Enter
-
-    li $t8, 8                        # Código ASCII do Backspace
-    beq $t4, $t8, read_apaga         # Se o usuário apagou um caractere, tratamos separado
-
-    li $t8, 255                      # Limite do nosso buffer (o último byte fica para o \0)
-    beq $t9, $t8, read_loop          # Se o buffer encheu, não avançamos mais para não estourar a memória
-
-    addi $t2, $t2, 1                 # Avança o ponteiro do buffer
-    addi $t9, $t9, 1                 # Conta mais um caractere guardado
-    j read_loop                      # Espera a próxima tecla
-read_apaga:                          # Tratamento do Backspace
-    beqz $t9, read_loop              # Se o buffer estiver vazio, não tem o que apagar
-    addi $t2, $t2, -1                # Volta uma posição no nosso buffer
-    addi $t9, $t9, -1                # Desconta o caractere apagado
-    j read_loop                      # Espera a próxima tecla
-read_fim:                            # Finalização do buffer
-    li $t8, 0                        # Carrega o valor do \0
-    sb $t8, 0($t2)                   # Trocamos o \n pelo \0 para facilitar a comparação no parser
-    jr $ra                           # Retorna
+read_string_mmio:
+    li $t0, 0xFFFF0000
+    li $t1, 0xFFFF0004
+    move $t2, $a0
+    li $t9, 0
+read_loop:
+    lw $t3, 0($t0)
+    andi $t3, $t3, 1
+    beqz $t3, read_loop
+    lw $t4, 0($t1)
+    li $t5, 0xFFFF0008
+    li $t6, 0xFFFF000C
+echo_wait:
+    lw $t7, 0($t5)
+    andi $t7, $t7, 1
+    beqz $t7, echo_wait
+    sw $t4, 0($t6)
+    sb $t4, 0($t2)
+    li $t8, 10
+    beq $t4, $t8, read_fim
+    li $t8, 8
+    beq $t4, $t8, read_apaga
+    li $t8, 255
+    beq $t9, $t8, read_loop
+    addi $t2, $t2, 1
+    addi $t9, $t9, 1
+    j read_loop
+read_apaga:
+    beqz $t9, read_loop
+    addi $t2, $t2, -1
+    addi $t9, $t9, -1
+    j read_loop
+read_fim:
+    li $t8, 0
+    sb $t8, 0($t2)
+    jr $ra
 
 # =========================================================
 # FUNÇÃO: strcmp
 # =========================================================
-strcmp:                              # Compara duas strings ($a0 e $a1) e devolve o resultado no $v0
-strcmp_loop:                         # Laço que anda pelas duas strings ao mesmo tempo
-    lb $t0, 0($a0)                   # Carrega 1 byte da primeira string
-    lb $t1, 0($a1)                   # Carrega 1 byte da segunda string
-    bne $t0, $t1, strcmp_diferente   # Caracteres diferentes: strings diferentes
-    beqz $t0, strcmp_igual           # \0 em ambas: strings iguais
-    addi $a0, $a0, 1                 # Avança na primeira string
-    addi $a1, $a1, 1                 # Avança na segunda string
-    j strcmp_loop                    # Reinicia o laço
-strcmp_diferente:                    # Strings diferentes
-    li $v0, 1                        # Devolve 1
-    jr $ra                           # Retorna
-strcmp_igual:                        # Strings iguais
-    li $v0, 0                        # Devolve 0
-    jr $ra                           # Retorna
+strcmp:
+strcmp_loop:
+    lb $t0, 0($a0)
+    lb $t1, 0($a1)
+    bne $t0, $t1, strcmp_diferente
+    beqz $t0, strcmp_igual
+    addi $a0, $a0, 1
+    addi $a1, $a1, 1
+    j strcmp_loop
+strcmp_diferente:
+    li $v0, 1
+    jr $ra
+strcmp_igual:
+    li $v0, 0
+    jr $ra
 
 # =========================================================
 # FUNÇÃO: strcpy
 # =========================================================
-strcpy:                              # Copia uma string com limite | $a0 = destino, $a1 = origem, $a2 = máx.
-strcpy_loop:                         # Laço que copia caractere a caractere
-    beqz $a2, strcpy_fim             # Atingiu o máximo: para
-    lb $t0, 0($a1)                   # Carrega 1 byte da origem
-    beqz $t0, strcpy_fim             # \0 da origem: termina
-    sb $t0, 0($a0)                   # Grava no destino
-    addi $a0, $a0, 1                 # Avança no destino
-    addi $a1, $a1, 1                 # Avança na origem
-    addi $a2, $a2, -1                # Um caractere a menos que cabe
-    j strcpy_loop                    # Reinicia o laço
-strcpy_fim:                          # Fim da cópia
-    sb $zero, 0($a0)                 # Fecha a string com \0
-    jr $ra                           # Retorna
+strcpy:
+strcpy_loop:
+    beqz $a2, strcpy_fim
+    lb $t0, 0($a1)
+    beqz $t0, strcpy_fim
+    sb $t0, 0($a0)
+    addi $a0, $a0, 1
+    addi $a1, $a1, 1
+    addi $a2, $a2, -1
+    j strcpy_loop
+strcpy_fim:
+    sb $zero, 0($a0)
+    jr $ra
 
 # =========================================================
 # FUNÇÃO: parser_comandos
 # =========================================================
-parser_comandos:                     # Rotina de interpretação (decifra o que o usuário quer)
-    addi $sp, $sp, -12               # Abre 12 bytes na pilha
-    sw $ra, 0($sp)                   # Salva o $ra
-    sw $s0, 4($sp)                   # Salva o $s0
-    sw $s1, 8($sp)                   # Salva o $s1 (quantidade de opções)
-    move $s0, $a0                    # Guarda o endereço do buffer
+parser_comandos:
+    addi $sp, $sp, -12
+    sw $ra, 0($sp)
+    sw $s0, 4($sp)
+    sw $s1, 8($sp)
+    move $s0, $a0
 
-    lb $t0, 0($s0)                   # Lê o primeiro caractere
-    beqz $t0, parser_fim             # Linha vazia: ignora
+    lb $t0, 0($s0)
+    beqz $t0, parser_fim
 
-    move $a0, $s0                    # Passa o buffer para separar as opções
-    jal separa_opcoes                # Corta a string em cada " --"
-    move $s1, $v0                    # Guarda a quantidade de opções
+    move $a0, $s0
+    jal separa_opcoes
+    move $s1, $v0
 
-    move $a0, $s0                    # Compara com "infoGeral"
+    move $a0, $s0
     la $a1, cmd_infoGeral
     jal strcmp
     beqz $v0, executa_infoGeral
 
-    move $a0, $s0                    # Compara com "formatar"
+    move $a0, $s0
     la $a1, cmd_formatar
     jal strcmp
     beqz $v0, executa_formatar
 
-    move $a0, $s0                    # Compara com "limparAp"
+    move $a0, $s0
     la $a1, cmd_limparAp
     jal strcmp
     beqz $v0, executa_limparAp
 
-    move $a0, $s0                    # Compara com "addMorador"
+    move $a0, $s0
     la $a1, cmd_addMorador
     jal strcmp
     beqz $v0, executa_addMorador
 
-    move $a0, $s0                    # Compara com "infoAp"
+    move $a0, $s0
     la $a1, cmd_infoAp
     jal strcmp
     beqz $v0, executa_infoAp
 
-    move $a0, $s0                    # Compara com "rmvMorador"
+    move $a0, $s0
     la $a1, cmd_rmvMorador
     jal strcmp
     beqz $v0, executa_rmvMorador
 
-comando_invalido:                    # Comando não reconhecido ou opções erradas
-    la $a0, msg_invalido             # "Comando invalido"
+    move $a0, $s0                    # Compara com "addAuto" (minúsculo)
+    la $a1, cmd_addAuto_min
+    jal strcmp
+    beqz $v0, executa_addAuto
+
+    move $a0, $s0                    # Compara com "AddAuto" (maiúsculo)
+    la $a1, cmd_addAuto_mai
+    jal strcmp
+    beqz $v0, executa_addAuto
+
+comando_invalido:
+    la $a0, msg_invalido
     jal print_string_mmio
     j parser_fim
 
 executa_infoGeral:
-    bnez $s1, comando_invalido       # infoGeral não aceita opções
+    bnez $s1, comando_invalido
     jal comando_infoGeral
     j parser_fim
 
 executa_formatar:
-    bnez $s1, comando_invalido       # formatar não aceita opções
+    bnez $s1, comando_invalido
     jal comando_formatar
     j parser_fim
 
 executa_limparAp:
     li $t0, 1
-    bne $s1, $t0, comando_invalido   # limparAp exige 1 opção
+    bne $s1, $t0, comando_invalido
     la $t0, opcoes
-    lw $a0, 0($t0)                   # 1ª opção: número do AP
+    lw $a0, 0($t0)
     jal comando_limparAp
     j parser_fim
 
 executa_addMorador:
     li $t0, 2
-    bne $s1, $t0, comando_invalido   # addMorador exige 2 opções
+    bne $s1, $t0, comando_invalido
     la $t0, opcoes
-    lw $a0, 0($t0)                   # 1ª opção: número do AP
-    lw $a1, 4($t0)                   # 2ª opção: nome do morador
+    lw $a0, 0($t0)
+    lw $a1, 4($t0)
     lb $t1, 0($a1)
-    beqz $t1, comando_invalido       # Nome vazio não vale
+    beqz $t1, comando_invalido
     jal comando_addMorador
     j parser_fim
 
 executa_infoAp:
     li $t0, 1
-    bne $s1, $t0, comando_invalido   # infoAp exige 1 opção
+    bne $s1, $t0, comando_invalido
     la $t0, opcoes
-    lw $a0, 0($t0)                   # 1ª opção: AP ou "all"
+    lw $a0, 0($t0)
     jal comando_infoAp
     j parser_fim
 
-executa_rmvMorador:                  # Desvio do comando rmvMorador
+executa_rmvMorador:
     li $t0, 2
-    bne $s1, $t0, comando_invalido   # rmvMorador exige 2 opções (AP e nome)
+    bne $s1, $t0, comando_invalido
     la $t0, opcoes
-    lw $a0, 0($t0)                   # 1ª opção: número do AP
-    lw $a1, 4($t0)                   # 2ª opção: nome do morador a remover
+    lw $a0, 0($t0)
+    lw $a1, 4($t0)
     lb $t1, 0($a1)
-    beqz $t1, comando_invalido       # Nome vazio não vale
+    beqz $t1, comando_invalido
     jal comando_rmvMorador
     j parser_fim
 
-parser_fim:                          # Encerramento do interpretador
+executa_addAuto:                     # Desvio do comando addAuto / AddAuto
+    li $t0, 4
+    bne $s1, $t0, comando_invalido   # addAuto exige exatamente 4 opções
+    la $t0, opcoes
+    lw $a0, 0($t0)                   # 1ª opção: número do AP
+    lw $a1, 4($t0)                   # 2ª opção: tipo ("c" ou "m")
+    lw $a2, 8($t0)                   # 3ª opção: modelo
+    lw $a3, 12($t0)                  # 4ª opção: placa
+    lb $t1, 0($a2)
+    beqz $t1, comando_invalido       # Modelo vazio não vale
+    lb $t1, 0($a3)
+    beqz $t1, comando_invalido       # Placa vazia não vale
+    jal comando_addAuto
+    j parser_fim
+
+parser_fim:
     lw $ra, 0($sp)
     lw $s0, 4($sp)
     lw $s1, 8($sp)
@@ -310,26 +332,25 @@ parser_fim:                          # Encerramento do interpretador
 # =========================================================
 # FUNÇÃO: separa_opcoes
 # =========================================================
-separa_opcoes:                       # Divide o comando em cada " --" | $a0 = buffer, $v0 = qtd de opções
+separa_opcoes:
     li $v0, 0
     la $t5, opcoes
 sep_loop:
     lb $t0, 0($a0)
     beqz $t0, sep_fim
-    li $t1, 32                       # ASCII do espaço
+    li $t1, 32
     bne $t0, $t1, sep_proximo
     lb $t2, 1($a0)
-    li $t1, 45                       # ASCII do '-'
+    li $t1, 45
     bne $t2, $t1, sep_proximo
     lb $t2, 2($a0)
-    bne $t2, $t1, sep_proximo        # Precisa de dois '-'
-
-    sb $zero, 0($a0)                 # Encerra a parte anterior com \0
+    bne $t2, $t1, sep_proximo
+    sb $zero, 0($a0)
     li $t3, 4
-    bge $v0, $t3, sep_conta          # Vetor cheio: só conta
+    bge $v0, $t3, sep_conta
     sll $t4, $v0, 2
     add $t4, $t5, $t4
-    addi $t6, $a0, 3                 # A opção começa 3 bytes à frente do " --"
+    addi $t6, $a0, 3
     sw $t6, 0($t4)
 sep_conta:
     addi $v0, $v0, 1
@@ -344,32 +365,32 @@ sep_fim:
 # =========================================================
 # FUNÇÃO: converte_ap
 # =========================================================
-converte_ap:                         # Transforma o texto do AP em índice | $a0 = string, $v0 = 0..23 ou -1
+converte_ap:
     li $t0, 0
     li $t1, 0
 conv_loop:
     lb $t2, 0($a0)
     beqz $t2, conv_valida
-    li $t3, 48                       # ASCII '0'
+    li $t3, 48
     blt $t2, $t3, conv_invalido
-    li $t3, 57                       # ASCII '9'
+    li $t3, 57
     bgt $t2, $t3, conv_invalido
-    addi $t2, $t2, -48               # Valor numérico do dígito
+    addi $t2, $t2, -48
     li $t3, 10
     mul $t0, $t0, $t3
     add $t0, $t0, $t2
     addi $t1, $t1, 1
     li $t3, 4
-    bgt $t1, $t3, conv_invalido      # Mais de 4 dígitos: inválido
+    bgt $t1, $t3, conv_invalido
     addi $a0, $a0, 1
     j conv_loop
 conv_valida:
     li $t3, 3
-    blt $t1, $t3, conv_invalido      # Menos de 3 dígitos: inválido
+    blt $t1, $t3, conv_invalido
     li $t3, 100
     div $t0, $t3
-    mflo $t4                         # Andar
-    mfhi $t5                         # Final do AP
+    mflo $t4
+    mfhi $t5
     li $t3, 1
     blt $t4, $t3, conv_invalido
     blt $t5, $t3, conv_invalido
@@ -380,7 +401,7 @@ conv_valida:
     addi $t4, $t4, -1
     sll $t4, $t4, 1
     addi $t5, $t5, -1
-    add $v0, $t4, $t5                # Índice = (andar-1)*2 + (final-1)
+    add $v0, $t4, $t5
     jr $ra
 conv_invalido:
     li $v0, -1
@@ -389,8 +410,8 @@ conv_invalido:
 # =========================================================
 # FUNÇÃO: endereco_ap
 # =========================================================
-endereco_ap:                         # Calcula o endereço do AP na memória | $a0 = índice, $v0 = endereço
-    li $t0, 328                      # Tamanho de cada AP em bytes
+endereco_ap:
+    li $t0, 328
     mul $t0, $a0, $t0
     la $v0, condominio
     add $v0, $v0, $t0
@@ -399,17 +420,15 @@ endereco_ap:                         # Calcula o endereço do AP na memória | $
 # =========================================================
 # FUNÇÃO: comando_infoGeral
 # =========================================================
-comando_infoGeral:                   # Conta e exibe APs vazios e não vazios
+comando_infoGeral:
     addi $sp, $sp, -12
     sw $ra, 0($sp)
     sw $s0, 4($sp)
     sw $s1, 8($sp)
-
-    li $s0, 0                        # Contador de APs vazios
-    li $s1, 0                        # Contador de APs não vazios
+    li $s0, 0
+    li $s1, 0
     li $t2, 24
     la $t3, condominio
-
 loop_contagem:
     beqz $t2, exibe_relatorio
     lw $t4, 0($t3)
@@ -422,16 +441,13 @@ proximo_ap:
     addi $t3, $t3, 328
     addi $t2, $t2, -1
     j loop_contagem
-
 exibe_relatorio:
     la $a0, msg_info_nao_vazios
     move $a1, $s1
     jal imprime_linha_info
-
     la $a0, msg_info_vazios
     move $a1, $s0
     jal imprime_linha_info
-
     lw $ra, 0($sp)
     lw $s0, 4($sp)
     lw $s1, 8($sp)
@@ -441,30 +457,24 @@ exibe_relatorio:
 # =========================================================
 # FUNÇÃO: imprime_linha_info
 # =========================================================
-imprime_linha_info:                  # Imprime "<rótulo><qtd> (<pct>%)" | $a0 = rótulo, $a1 = qtd
+imprime_linha_info:
     addi $sp, $sp, -8
     sw $ra, 0($sp)
     sw $s0, 4($sp)
     move $s0, $a1
-
-    jal print_string_mmio            # Imprime o rótulo
-
+    jal print_string_mmio
     move $a0, $s0
-    jal print_int_mmio               # Imprime a quantidade
-
+    jal print_int_mmio
     la $a0, msg_porcentagem_ini
     jal print_string_mmio
-
     li $t0, 100
     mul $t0, $s0, $t0
     li $t1, 24
     div $t0, $t1
     mflo $a0
-    jal print_int_mmio               # Imprime a porcentagem
-
+    jal print_int_mmio
     la $a0, msg_porcentagem_fim
     jal print_string_mmio
-
     lw $ra, 0($sp)
     lw $s0, 4($sp)
     addi $sp, $sp, 8
@@ -473,9 +483,9 @@ imprime_linha_info:                  # Imprime "<rótulo><qtd> (<pct>%)" | $a0 =
 # =========================================================
 # FUNÇÃO: comando_formatar
 # =========================================================
-comando_formatar:                    # Zera todos os APs (não afeta o arquivo salvo)
+comando_formatar:
     la $t0, condominio
-    li $t1, 1968                     # 7872 bytes / 4 = 1968 palavras
+    li $t1, 1968
 formatar_loop:
     sw $zero, 0($t0)
     addi $t0, $t0, 4
@@ -486,27 +496,23 @@ formatar_loop:
 # =========================================================
 # FUNÇÃO: comando_limparAp
 # =========================================================
-comando_limparAp:                    # Esvazia um AP | $a0 = string com o número do AP
+comando_limparAp:
     addi $sp, $sp, -4
     sw $ra, 0($sp)
-
     jal converte_ap
     bltz $v0, limpar_invalido
-
     move $a0, $v0
     jal endereco_ap
-    li $t1, 82                       # 328 bytes / 4 = 82 palavras
+    li $t1, 82
 limpar_loop:
     sw $zero, 0($v0)
     addi $v0, $v0, 4
     addi $t1, $t1, -1
     bnez $t1, limpar_loop
     j limpar_fim
-
 limpar_invalido:
     la $a0, msg_ap_invalido
     jal print_string_mmio
-
 limpar_fim:
     lw $ra, 0($sp)
     addi $sp, $sp, 4
@@ -515,46 +521,38 @@ limpar_fim:
 # =========================================================
 # FUNÇÃO: comando_addMorador
 # =========================================================
-comando_addMorador:                  # Cadastra um morador | $a0 = string do AP, $a1 = nome
+comando_addMorador:
     addi $sp, $sp, -12
     sw $ra, 0($sp)
     sw $s0, 4($sp)
     sw $s1, 8($sp)
-    move $s1, $a1                    # Guarda o nome antes das próximas chamadas
-
+    move $s1, $a1
     jal converte_ap
     bltz $v0, add_mor_invalido
-
     move $a0, $v0
     jal endereco_ap
-    move $s0, $v0                    # $s0 = endereço base do AP
-
-    lw $t0, 0($s0)                   # Quantidade de moradores atual
+    move $s0, $v0
+    lw $t0, 0($s0)
     li $t1, 6
-    bge $t0, $t1, add_mor_cheio     # Já tem 6: rejeita
-
+    bge $t0, $t1, add_mor_cheio
     li $t1, 40
     mul $t1, $t0, $t1
-    addi $t1, $t1, 4                 # Offset do próximo nome
+    addi $t1, $t1, 4
     add $a0, $s0, $t1
     move $a1, $s1
-    li $a2, 39                       # Máximo de 39 caracteres para o nome
+    li $a2, 39
     jal strcpy
-
     lw $t0, 0($s0)
-    addi $t0, $t0, 1                 # Incrementa o contador de moradores
+    addi $t0, $t0, 1
     sw $t0, 0($s0)
     j add_mor_fim
-
 add_mor_invalido:
     la $a0, msg_ap_invalido
     jal print_string_mmio
     j add_mor_fim
-
 add_mor_cheio:
     la $a0, msg_max_moradores
     jal print_string_mmio
-
 add_mor_fim:
     lw $ra, 0($sp)
     lw $s0, 4($sp)
@@ -565,20 +563,17 @@ add_mor_fim:
 # =========================================================
 # FUNÇÃO: comando_infoAp
 # =========================================================
-# Exibe informações de um AP ou de todos | $a0 = string da opção
 comando_infoAp:
     addi $sp, $sp, -12
     sw $ra, 0($sp)
     sw $s0, 4($sp)
     sw $s1, 8($sp)
-    move $s1, $a0                    # Guarda a string da opção
-
+    move $s1, $a0
     la $a1, str_all
     move $a0, $s1
     jal strcmp
-    bnez $v0, info_ap_unico          # Se não for "all", exibe apenas um AP
-
-info_ap_all:                         # Percorre os 24 APs em ordem
+    bnez $v0, info_ap_unico
+info_ap_all:
     li $s0, 0
 info_all_loop:
     li $t0, 24
@@ -587,7 +582,6 @@ info_all_loop:
     jal imprime_ap
     addi $s0, $s0, 1
     j info_all_loop
-
 info_ap_unico:
     move $a0, $s1
     jal converte_ap
@@ -595,11 +589,9 @@ info_ap_unico:
     move $a0, $v0
     jal imprime_ap
     j info_fim
-
 info_ap_invalido:
     la $a0, msg_ap_invalido
     jal print_string_mmio
-
 info_fim:
     lw $ra, 0($sp)
     lw $s0, 4($sp)
@@ -610,102 +602,87 @@ info_fim:
 # =========================================================
 # FUNÇÃO: imprime_ap
 # =========================================================
-# Imprime todas as informações de um AP | $a0 = índice (0 a 23)
 imprime_ap:
     addi $sp, $sp, -16
     sw $ra, 0($sp)
     sw $s0, 4($sp)
     sw $s1, 8($sp)
     sw $s2, 12($sp)
-    move $s1, $a0                    # Guarda o índice para calcular o número do AP
-
+    move $s1, $a0
     jal endereco_ap
-    move $s0, $v0                    # $s0 = endereço base do AP
-
-    la $a0, msg_ap_label             # "AP: "
+    move $s0, $v0
+    la $a0, msg_ap_label
     jal print_string_mmio
-
-    srl $t0, $s1, 1                  # índice / 2 = andar - 1
-    addi $t0, $t0, 1                 # andar
+    srl $t0, $s1, 1
+    addi $t0, $t0, 1
     li $t1, 100
-    mul $t0, $t0, $t1                # andar * 100
-    andi $t1, $s1, 1                 # índice mod 2
-    addi $t1, $t1, 1                 # número do AP no andar
-    add $a0, $t0, $t1                # número completo do AP
+    mul $t0, $t0, $t1
+    andi $t1, $s1, 1
+    addi $t1, $t1, 1
+    add $a0, $t0, $t1
     jal print_int_mmio
-
     la $a0, msg_newline
     jal print_string_mmio
-
-    lw $t0, 0($s0)                   # Quantidade de moradores
-    beqz $t0, imprime_ap_vazio       # AP vazio: mostra mensagem e encerra
-
-    la $a0, msg_moradores_label      # "Moradores:\n"
+    lw $t0, 0($s0)
+    beqz $t0, imprime_ap_vazio
+    la $a0, msg_moradores_label
     jal print_string_mmio
-
-    li $s2, 0                        # Contador de moradores impressos
+    li $s2, 0
 imprime_moradores_loop:
     lw $t0, 0($s0)
     beq $s2, $t0, imprime_moradores_fim
     li $t1, 40
     mul $t1, $s2, $t1
-    addi $t1, $t1, 4                 # Offset do nome atual
+    addi $t1, $t1, 4
     add $a0, $s0, $t1
     jal print_string_mmio
     la $a0, msg_newline
     jal print_string_mmio
     addi $s2, $s2, 1
     j imprime_moradores_loop
-
 imprime_moradores_fim:
-    lb $t0, 244($s0)                 # Tipo de veículo
-    beqz $t0, imprime_ap_fim         # Sem veículo: encerra
-
-    li $t1, 99                       # ASCII 'c'
+    lb $t0, 244($s0)
+    beqz $t0, imprime_ap_fim
+    li $t1, 99
     beq $t0, $t1, imprime_carro
-
 imprime_motos:
-    la $a0, msg_moto_label           # "Moto:\n"
+    la $a0, msg_moto_label
     jal print_string_mmio
-
     li $s2, 0
-    lb $t2, 245($s0)                 # Quantidade de motos
+    lb $t2, 245($s0)
 imprime_motos_loop:
     beq $s2, $t2, imprime_ap_fim
     li $t1, 40
     mul $t1, $s2, $t1
-    addi $t1, $t1, 248               # Offset do modelo da moto atual
+    addi $t1, $t1, 248
     add $a0, $s0, $t1
     jal print_string_mmio
     la $a0, msg_sep_veiculo
     jal print_string_mmio
     li $t1, 40
     mul $t1, $s2, $t1
-    addi $t1, $t1, 278               # Offset da placa (248 + 30)
+    addi $t1, $t1, 278
     add $a0, $s0, $t1
     jal print_string_mmio
     la $a0, msg_newline
     jal print_string_mmio
     addi $s2, $s2, 1
     j imprime_motos_loop
-
 imprime_carro:
-    la $a0, msg_carro_label          # "Carro:\n"
+    la $a0, msg_carro_label
     jal print_string_mmio
-    addi $a0, $s0, 248               # Modelo do carro no offset 248
+    addi $a0, $s0, 248
     jal print_string_mmio
     la $a0, msg_sep_veiculo
     jal print_string_mmio
-    addi $a0, $s0, 278               # Placa do carro no offset 278
+    addi $a0, $s0, 278
     jal print_string_mmio
     la $a0, msg_newline
     jal print_string_mmio
     j imprime_ap_fim
-
 imprime_ap_vazio:
-    la $a0, msg_ap_vazio             # "Apartamento vazio\n"
+    la $a0, msg_ap_vazio
     jal print_string_mmio
-
 imprime_ap_fim:
     lw $ra, 0($sp)
     lw $s0, 4($sp)
@@ -717,98 +694,203 @@ imprime_ap_fim:
 # =========================================================
 # FUNÇÃO: comando_rmvMorador
 # =========================================================
-# Remove um morador de um AP | $a0 = string do AP, $a1 = nome do morador
 comando_rmvMorador:
-    addi $sp, $sp, -16               # Abre 16 bytes na pilha
-    sw $ra, 0($sp)                   # Salva o $ra
-    sw $s0, 4($sp)                   # Salva o $s0 (endereço base do AP)
-    sw $s1, 8($sp)                   # Salva o $s1 (nome do morador a remover)
-    sw $s2, 12($sp)                  # Salva o $s2 (índice da busca)
-    move $s1, $a1                    # Guarda o nome antes das próximas chamadas
-
-    jal converte_ap                  # Converte texto do AP em índice
-    bltz $v0, rmv_mor_invalido       # -1 = AP inválido
-
+    addi $sp, $sp, -16
+    sw $ra, 0($sp)
+    sw $s0, 4($sp)
+    sw $s1, 8($sp)
+    sw $s2, 12($sp)
+    move $s1, $a1
+    jal converte_ap
+    bltz $v0, rmv_mor_invalido
     move $a0, $v0
-    jal endereco_ap                  # Calcula o endereço base do AP
-    move $s0, $v0                    # $s0 = endereço do AP
-
-    li $s2, 0                        # Índice do morador atual na busca
-rmv_mor_busca:                       # Laço para encontrar o nome na lista
-    lw $t0, 0($s0)                   # Quantidade de moradores
-    beq $s2, $t0, rmv_mor_nao_acha  # Percorreu todos sem encontrar
+    jal endereco_ap
+    move $s0, $v0
+    li $s2, 0
+rmv_mor_busca:
+    lw $t0, 0($s0)
+    beq $s2, $t0, rmv_mor_nao_acha
     li $t1, 40
     mul $t1, $s2, $t1
-    addi $t1, $t1, 4                 # Offset do nome atual
-    add $a0, $s0, $t1                # Endereço do nome atual
-    move $a1, $s1                    # Nome a procurar
-    jal strcmp                       # Compara
-    beqz $v0, rmv_mor_achou         # Encontrou o morador
-    addi $s2, $s2, 1                 # Avança para o próximo
+    addi $t1, $t1, 4
+    add $a0, $s0, $t1
+    move $a1, $s1
+    jal strcmp
+    beqz $v0, rmv_mor_achou
+    addi $s2, $s2, 1
     j rmv_mor_busca
-
-rmv_mor_achou:                       # Morador encontrado na posição $s2
-    lw $t0, 0($s0)                   # Quantidade atual de moradores
-    addi $t0, $t0, -1                # Nova quantidade após a remoção
-    sw $t0, 0($s0)                   # Atualiza o contador
-
-    # Compacta: copia cada nome seguinte uma vaga para cima
-rmv_mor_compacta:                    # Laço de compactação da lista
-    lw $t0, 0($s0)                   # Quantidade após remoção
-    beq $s2, $t0, rmv_mor_limpa_ult # Chegou na última vaga preenchida
-    addi $t1, $s2, 1                 # Índice do próximo morador
+rmv_mor_achou:
+    lw $t0, 0($s0)
+    addi $t0, $t0, -1
+    sw $t0, 0($s0)
+rmv_mor_compacta:
+    lw $t0, 0($s0)
+    beq $s2, $t0, rmv_mor_limpa_ult
+    addi $t1, $s2, 1
     li $t2, 40
     mul $t3, $t1, $t2
-    addi $t3, $t3, 4                 # Offset do nome seguinte (origem)
-    add $a1, $s0, $t3                # Endereço da origem
+    addi $t3, $t3, 4
+    add $a1, $s0, $t3
     mul $t3, $s2, $t2
-    addi $t3, $t3, 4                 # Offset da vaga atual (destino)
-    add $a0, $s0, $t3                # Endereço do destino
-    li $a2, 39                       # Máximo de 39 caracteres
-    jal strcpy                       # Copia o nome seguinte para a posição atual
-    addi $s2, $s2, 1                 # Avança para a próxima posição
-    j rmv_mor_compacta               # Continua compactando
-
-rmv_mor_limpa_ult:                   # Apaga o último nome (que ficou duplicado)
-    lw $t0, 0($s0)                   # Quantidade atualizada
+    addi $t3, $t3, 4
+    add $a0, $s0, $t3
+    li $a2, 39
+    jal strcpy
+    addi $s2, $s2, 1
+    j rmv_mor_compacta
+rmv_mor_limpa_ult:
+    lw $t0, 0($s0)
     li $t1, 40
     mul $t1, $t0, $t1
-    addi $t1, $t1, 4                 # Offset da última vaga agora vazia
-    add $t1, $s0, $t1                # Endereço da última vaga
-    li $t2, 40                       # Zera os 40 bytes da vaga
+    addi $t1, $t1, 4
+    add $t1, $s0, $t1
+    li $t2, 40
 rmv_mor_zera_ult:
     sb $zero, 0($t1)
     addi $t1, $t1, 1
     addi $t2, $t2, -1
     bnez $t2, rmv_mor_zera_ult
-
-    # Se o AP ficou vazio, apaga os veículos também
-    lw $t0, 0($s0)                   # Quantidade após remoção
-    bnez $t0, rmv_mor_fim            # Ainda tem moradores: não apaga veículos
-
-rmv_mor_apaga_veiculos:              # AP esvaziou: zera a área de veículos
-    addi $t0, $s0, 244               # Começa no offset 244 (tipo de veículo)
-    li $t1, 21                       # 84 bytes = 21 palavras (do offset 244 ao 327)
+    lw $t0, 0($s0)
+    bnez $t0, rmv_mor_fim
+rmv_mor_apaga_veiculos:
+    addi $t0, $s0, 244
+    li $t1, 21
 rmv_mor_zera_veic:
     sw $zero, 0($t0)
     addi $t0, $t0, 4
     addi $t1, $t1, -1
     bnez $t1, rmv_mor_zera_veic
-    j rmv_mor_fim                    # Veículos apagados: encerra
-
-rmv_mor_nao_acha:                    # Nome não encontrado na lista
-    la $a0, msg_nao_encontrado       # "Falha: morador nao encontrado"
+    j rmv_mor_fim
+rmv_mor_nao_acha:
+    la $a0, msg_nao_encontrado
     jal print_string_mmio
     j rmv_mor_fim
-
-rmv_mor_invalido:                    # AP digitado fora do intervalo do condomínio
-    la $a0, msg_ap_invalido          # "Falha: AP invalido"
+rmv_mor_invalido:
+    la $a0, msg_ap_invalido
     jal print_string_mmio
-
-rmv_mor_fim:                         # Encerramento do rmvMorador
+rmv_mor_fim:
     lw $ra, 0($sp)
     lw $s0, 4($sp)
     lw $s1, 8($sp)
     lw $s2, 12($sp)
     addi $sp, $sp, 16
+    jr $ra
+
+# =========================================================
+# FUNÇÃO: comando_addAuto
+# =========================================================
+# Cadastra um veículo | $a0 = AP, $a1 = tipo, $a2 = modelo, $a3 = placa
+comando_addAuto:
+    addi $sp, $sp, -20               # Abre 20 bytes na pilha
+    sw $ra, 0($sp)                   # Salva o $ra
+    sw $s0, 4($sp)                   # Salva o $s0 (endereço base do AP)
+    sw $s1, 8($sp)                   # Salva o $s1 (tipo do veículo)
+    sw $s2, 12($sp)                  # Salva o $s2 (modelo)
+    sw $s3, 16($sp)                  # Salva o $s3 (placa)
+    move $s1, $a1                    # Guarda o tipo antes das próximas chamadas
+    move $s2, $a2                    # Guarda o modelo
+    move $s3, $a3                    # Guarda a placa
+
+    jal converte_ap                  # Converte texto do AP em índice
+    bltz $v0, add_auto_invalido      # -1 = AP inválido
+
+    move $a0, $v0
+    jal endereco_ap                  # Calcula o endereço base do AP
+    move $s0, $v0                    # $s0 = endereço do AP
+
+    # Valida o tipo ANTES de qualquer outra checagem (igual ao enunciado)
+    lb $t0, 0($s1)                   # Primeiro caractere do tipo
+    lb $t1, 1($s1)                   # Segundo caractere (deve ser \0)
+    bnez $t1, add_auto_tipo_inv      # Tipo com mais de 1 caractere é inválido
+    li $t2, 99                       # ASCII 'c'
+    beq $t0, $t2, add_auto_tipo_ok   # Tipo é 'c': válido
+    li $t2, 109                      # ASCII 'm'
+    beq $t0, $t2, add_auto_tipo_ok   # Tipo é 'm': válido
+    j add_auto_tipo_inv              # Qualquer outro caractere: inválido
+
+add_auto_tipo_ok:                    # Tipo validado; agora checa se AP tem moradores
+    lw $t0, 0($s0)                   # Quantidade de moradores
+    beqz $t0, add_auto_vazio         # AP sem moradores não pode ter veículo
+
+    # Checa a regra de limite: 1 carro ou até 2 motos, sem mistura
+    lb $t0, 244($s0)                 # Tipo atual de veículo no AP
+    beqz $t0, add_auto_livre         # Nenhum veículo ainda: pode cadastrar
+
+    # Já tem algum veículo — aplica a regra
+    j add_auto_cheio                 # Qualquer veículo novo (carro no carro, moto no carro,
+                                     # carro na moto, e a checagem de 2 motos vem abaixo)
+
+add_auto_livre:                      # Primeiro veículo do AP
+    lb $t0, 0($s1)                   # Lê o tipo do veículo a cadastrar
+    li $t1, 99                       # 'c' = carro
+    beq $t0, $t1, add_auto_grava     # Carro no AP vazio de veículos: OK
+    j add_auto_grava_moto_check      # Moto: verifica quantas já tem (vai para 0 neste caso)
+
+add_auto_grava_moto_check:           # Chegamos aqui quando o tipo já existente é 'm' ou quando vamos adicionar a 1ª moto
+    lb $t0, 244($s0)                 # Tipo atual no AP
+    beqz $t0, add_auto_grava         # Nenhum veículo ainda: pode gravar
+    li $t1, 109                      # 'm'
+    bne $t0, $t1, add_auto_cheio     # Tipo atual não é moto: rejeita (ex: carro no AP, chega moto)
+    # Tipo atual é moto; agora checa se o novo também é moto
+    lb $t0, 0($s1)
+    li $t1, 109
+    bne $t0, $t1, add_auto_cheio     # Novo veículo não é moto (é carro): rejeita
+    lb $t0, 245($s0)                 # Quantidade atual de motos
+    li $t1, 2
+    bge $t0, $t1, add_auto_cheio     # Já tem 2 motos: rejeita
+    j add_auto_grava                 # Cabe mais uma moto
+
+add_auto_cheio:                      # Limite atingido ou regra violada
+    la $a0, msg_max_autos            # "Falha: AP com numero max de automoveis"
+    jal print_string_mmio
+    j add_auto_fim
+
+add_auto_vazio:                      # AP sem moradores
+    la $a0, msg_ap_vazio_auto        # "Falha: AP vazio"
+    jal print_string_mmio
+    j add_auto_fim
+
+add_auto_tipo_inv:                   # Tipo diferente de "c" ou "m"
+    la $a0, msg_tipo_invalido        # "Falha: tipo invalido"
+    jal print_string_mmio
+    j add_auto_fim
+
+add_auto_grava:                      # Gravação do veículo na memória
+    lb $t0, 245($s0)                 # Quantidade atual de veículos (antes de gravar)
+    li $t1, 40                       # Cada veículo ocupa 40 bytes
+    mul $t1, $t0, $t1
+    addi $t1, $t1, 248               # Offset do modelo: 248 + qtd * 40
+    add $a0, $s0, $t1                # Endereço do modelo
+    move $a1, $s2                    # Modelo a gravar
+    li $a2, 29                       # Máximo de 29 caracteres para o modelo
+    jal strcpy
+
+    lb $t0, 245($s0)                 # Relê a quantidade para calcular o offset da placa
+    li $t1, 40
+    mul $t1, $t0, $t1
+    addi $t1, $t1, 278               # Offset da placa: 248 + qtd*40 + 30
+    add $a0, $s0, $t1                # Endereço da placa
+    move $a1, $s3                    # Placa a gravar
+    li $a2, 9                        # Máximo de 9 caracteres para a placa
+    jal strcpy
+
+    lb $t0, 0($s1)                   # Tipo do veículo a gravar
+    sb $t0, 244($s0)                 # Atualiza o tipo no offset 244
+
+    lb $t0, 245($s0)                 # Quantidade atual
+    addi $t0, $t0, 1                 # Mais um veículo
+    sb $t0, 245($s0)                 # Grava a nova quantidade no offset 245
+    j add_auto_fim
+
+add_auto_invalido:                   # AP digitado fora do intervalo do condomínio
+    la $a0, msg_ap_invalido
+    jal print_string_mmio
+
+add_auto_fim:                        # Encerramento do addAuto
+    lw $ra, 0($sp)
+    lw $s0, 4($sp)
+    lw $s1, 8($sp)
+    lw $s2, 12($sp)
+    lw $s3, 16($sp)
+    addi $sp, $sp, 20
     jr $ra
