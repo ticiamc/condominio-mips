@@ -3,10 +3,11 @@
 # Atividade: Projeto 01 (PE1) da 1a VA
 # Disciplina: Arquitetura e Organização de Computadores
 # Semestre Letivo: 2026.2
-# Breve descrição: Implementação do comando rmvAuto, que remove um
-#                  veículo de um AP pela placa. Se for a 1ª de 2 motos,
-#                  copia a 2ª para a 1ª vaga. Se a quantidade cair a
-#                  zero, zera o tipo para liberar o AP para um novo cadastro.
+# Breve descrição: Implementação dos comandos salvar e recarregar,
+#                  que gravam e restauram os 7872 bytes do condomínio
+#                  em/de condominio.dat via syscalls de arquivo (13-16).
+#                  Na inicialização, os dados salvos são carregados
+#                  automaticamente; se o arquivo nao existir, começa vazio.
 # =========================================================
 
 # ---------------------------------------------------------
@@ -20,18 +21,18 @@
 # Para achar o AP usamos: (andar - 1) * 2 + (final - 1)  ->  101 = 0, 1202 = 23
 # ---------------------------------------------------------
 
-.data                                # Seção de variáveis estáticas na memória
-    banner:              .asciiz "LS-shell>> " # Banner com nossas iniciais exigido pelo projeto
-    msg_invalido:        .asciiz "Comando invalido\n" # Mensagem padrão para comandos não reconhecidos
-    msg_ap_invalido:     .asciiz "Falha: AP invalido\n" # Mensagem para quando o AP digitado não existe no condomínio
-    msg_max_moradores:   .asciiz "Falha: AP com numero max de moradores\n" # AP já tem 6 moradores
-    msg_nao_encontrado:  .asciiz "Falha: morador nao encontrado\n" # Nome não consta no AP
-    msg_max_autos:       .asciiz "Falha: AP com numero max de automoveis\n" # Não cabe mais veículo
-    msg_tipo_invalido:   .asciiz "Falha: tipo invalido\n" # Tipo diferente de "c" ou "m"
-    msg_ap_vazio_auto:   .asciiz "Falha: AP vazio\n"      # AP sem moradores não pode ter veículo
-    msg_auto_nao_enc:    .asciiz "Falha: automovel nao encontrado\n" # Placa não cadastrada no AP
+.data
+    banner:              .asciiz "LS-shell>> "
+    msg_invalido:        .asciiz "Comando invalido\n"
+    msg_ap_invalido:     .asciiz "Falha: AP invalido\n"
+    msg_max_moradores:   .asciiz "Falha: AP com numero max de moradores\n"
+    msg_nao_encontrado:  .asciiz "Falha: morador nao encontrado\n"
+    msg_max_autos:       .asciiz "Falha: AP com numero max de automoveis\n"
+    msg_tipo_invalido:   .asciiz "Falha: tipo invalido\n"
+    msg_ap_vazio_auto:   .asciiz "Falha: AP vazio\n"
+    msg_auto_nao_enc:    .asciiz "Falha: automovel nao encontrado\n"
+    msg_erro_salvar:     .asciiz "Falha: erro ao salvar arquivo\n"  # Exibida quando o open para escrita falha
 
-    # Nomes dos comandos
     cmd_infoGeral:       .asciiz "infoGeral"
     cmd_formatar:        .asciiz "formatar"
     cmd_limparAp:        .asciiz "limparAp"
@@ -40,13 +41,16 @@
     cmd_rmvMorador:      .asciiz "rmvMorador"
     cmd_addAuto_min:     .asciiz "addAuto"
     cmd_addAuto_mai:     .asciiz "AddAuto"
-    cmd_rmvAuto:         .asciiz "rmvAuto"   # Remove um veículo de um AP pela placa
+    cmd_rmvAuto:         .asciiz "rmvAuto"
+    cmd_salvar:          .asciiz "salvar"      # Grava o condomínio no arquivo externo
+    cmd_recarregar:      .asciiz "recarregar"  # Restaura o condomínio do arquivo externo
+
+    nome_arquivo:        .asciiz "condominio.dat" # Arquivo de persistência (mesma pasta do MARS)
 
     msg_info_nao_vazios: .asciiz "Nao vazios:\t"
     msg_info_vazios:     .asciiz "Vazios:\t\t"
     msg_porcentagem_ini: .asciiz " ("
     msg_porcentagem_fim: .asciiz "%)\n"
-
     msg_ap_label:        .asciiz "AP: "
     msg_ap_vazio:        .asciiz "Apartamento vazio\n"
     msg_moradores_label: .asciiz "Moradores:\n"
@@ -60,12 +64,13 @@
     buffer_int:          .space 12
     .align 2
     opcoes:              .space 16
-    condominio:          .space 7872
+    condominio:          .space 7872  # 24 APs x 328 bytes
 
 .text
 .globl main
 
-main:
+main:                                # Ponto de entrada; carrega dados antes do shell
+    jal rotina_recarregar            # Carga automática: silenciosa se arquivo não existir
 loop_shell:
     la $a0, banner
     jal print_string_mmio
@@ -79,9 +84,9 @@ loop_shell:
 # FUNÇÃO: print_string_mmio
 # =========================================================
 print_string_mmio:
-    li $t0, 0xFFFF0008
-    li $t1, 0xFFFF000C
-    move $t2, $a0
+    li $t0, 0xFFFF0008               # Transmitter Control
+    li $t1, 0xFFFF000C               # Transmitter Data
+    move $t2, $a0                    # Ponteiro para a string
 print_loop:
     lb $t3, 0($t2)
     beqz $t3, print_fim
@@ -124,8 +129,8 @@ int_loop:
 # FUNÇÃO: read_string_mmio
 # =========================================================
 read_string_mmio:
-    li $t0, 0xFFFF0000
-    li $t1, 0xFFFF0004
+    li $t0, 0xFFFF0000               # Receiver Control
+    li $t1, 0xFFFF0004               # Receiver Data
     move $t2, $a0
     li $t9, 0
 read_loop:
@@ -256,6 +261,16 @@ parser_comandos:
     jal strcmp
     beqz $v0, executa_rmvAuto
 
+    move $a0, $s0                    # Compara com "salvar"
+    la $a1, cmd_salvar
+    jal strcmp
+    beqz $v0, executa_salvar
+
+    move $a0, $s0                    # Compara com "recarregar"
+    la $a1, cmd_recarregar
+    jal strcmp
+    beqz $v0, executa_recarregar
+
 comando_invalido:
     la $a0, msg_invalido
     jal print_string_mmio
@@ -265,12 +280,10 @@ executa_infoGeral:
     bnez $s1, comando_invalido
     jal comando_infoGeral
     j parser_fim
-
 executa_formatar:
     bnez $s1, comando_invalido
     jal comando_formatar
     j parser_fim
-
 executa_limparAp:
     li $t0, 1
     bne $s1, $t0, comando_invalido
@@ -278,7 +291,6 @@ executa_limparAp:
     lw $a0, 0($t0)
     jal comando_limparAp
     j parser_fim
-
 executa_addMorador:
     li $t0, 2
     bne $s1, $t0, comando_invalido
@@ -289,7 +301,6 @@ executa_addMorador:
     beqz $t1, comando_invalido
     jal comando_addMorador
     j parser_fim
-
 executa_infoAp:
     li $t0, 1
     bne $s1, $t0, comando_invalido
@@ -297,7 +308,6 @@ executa_infoAp:
     lw $a0, 0($t0)
     jal comando_infoAp
     j parser_fim
-
 executa_rmvMorador:
     li $t0, 2
     bne $s1, $t0, comando_invalido
@@ -308,7 +318,6 @@ executa_rmvMorador:
     beqz $t1, comando_invalido
     jal comando_rmvMorador
     j parser_fim
-
 executa_addAuto:
     li $t0, 4
     bne $s1, $t0, comando_invalido
@@ -323,16 +332,25 @@ executa_addAuto:
     beqz $t1, comando_invalido
     jal comando_addAuto
     j parser_fim
-
-executa_rmvAuto:                     # Desvio do comando rmvAuto
+executa_rmvAuto:
     li $t0, 2
-    bne $s1, $t0, comando_invalido   # rmvAuto exige exatamente 2 opções
+    bne $s1, $t0, comando_invalido
     la $t0, opcoes
-    lw $a0, 0($t0)                   # 1ª opção: número do AP
-    lw $a1, 4($t0)                   # 2ª opção: placa do veículo
+    lw $a0, 0($t0)
+    lw $a1, 4($t0)
     lb $t1, 0($a1)
-    beqz $t1, comando_invalido       # Placa vazia não vale
+    beqz $t1, comando_invalido
     jal comando_rmvAuto
+    j parser_fim
+
+executa_salvar:                      # Desvio do comando salvar — não aceita opções
+    bnez $s1, comando_invalido
+    jal comando_salvar
+    j parser_fim
+
+executa_recarregar:                  # Desvio do comando recarregar — não aceita opções
+    bnez $s1, comando_invalido
+    jal rotina_recarregar            # Mesma rotina da carga automática
     j parser_fim
 
 parser_fim:
@@ -498,7 +516,7 @@ imprime_linha_info:
 # =========================================================
 comando_formatar:
     la $t0, condominio
-    li $t1, 1968
+    li $t1, 1968                     # 7872 / 4 = 1968 palavras a zerar
 formatar_loop:
     sw $zero, 0($t0)
     addi $t0, $t0, 4
@@ -516,7 +534,7 @@ comando_limparAp:
     bltz $v0, limpar_invalido
     move $a0, $v0
     jal endereco_ap
-    li $t1, 82
+    li $t1, 82                       # 328 / 4 = 82 palavras
 limpar_loop:
     sw $zero, 0($v0)
     addi $v0, $v0, 4
@@ -888,101 +906,163 @@ add_auto_fim:
 # =========================================================
 # FUNÇÃO: comando_rmvAuto
 # =========================================================
-# Remove um veículo de um AP pela placa | $a0 = AP, $a1 = placa
 comando_rmvAuto:
-    addi $sp, $sp, -12               # Abre 12 bytes na pilha
-    sw $ra, 0($sp)                   # Salva o $ra
-    sw $s0, 4($sp)                   # Salva o $s0 (endereço base do AP)
-    sw $s1, 8($sp)                   # Salva o $s1 (placa a buscar)
-    move $s1, $a1                    # Guarda a placa antes das próximas chamadas
-
-    jal converte_ap                  # Converte texto do AP em índice
-    bltz $v0, rmv_auto_invalido      # -1 = AP inválido
-
+    addi $sp, $sp, -12
+    sw $ra, 0($sp)
+    sw $s0, 4($sp)
+    sw $s1, 8($sp)
+    move $s1, $a1
+    jal converte_ap
+    bltz $v0, rmv_auto_invalido
     move $a0, $v0
-    jal endereco_ap                  # Calcula o endereço base do AP
-    move $s0, $v0                    # $s0 = endereço do AP
-
-    lb $t0, 245($s0)                 # Quantidade de veículos cadastrados
-    beqz $t0, rmv_auto_nao_enc      # Sem veículos: placa não pode estar aqui
-
-    # Compara a placa do veículo 0
-    addi $a0, $s0, 278               # Placa do veículo 0: offset 278
+    jal endereco_ap
+    move $s0, $v0
+    lb $t0, 245($s0)
+    beqz $t0, rmv_auto_nao_enc
+    addi $a0, $s0, 278
     move $a1, $s1
     jal strcmp
-    beqz $v0, rmv_auto_achou_0      # Achou na posição 0
-
-    lb $t0, 245($s0)                 # Verifica se tem um segundo veículo
+    beqz $v0, rmv_auto_achou_0
+    lb $t0, 245($s0)
     li $t1, 2
-    blt $t0, $t1, rmv_auto_nao_enc  # Só tinha 1 veículo e não bateu: não encontrado
-
-    # Compara a placa do veículo 1
-    addi $a0, $s0, 318               # Placa do veículo 1: offset 248 + 40 + 30 = 318
+    blt $t0, $t1, rmv_auto_nao_enc
+    addi $a0, $s0, 318
     move $a1, $s1
     jal strcmp
-    beqz $v0, rmv_auto_achou_1      # Achou na posição 1
-    j rmv_auto_nao_enc               # Não encontrado em nenhum dos dois
-
-rmv_auto_achou_0:                    # Veículo a remover está na posição 0
-    lb $t0, 245($s0)                 # Quantidade atual
+    beqz $v0, rmv_auto_achou_1
+    j rmv_auto_nao_enc
+rmv_auto_achou_0:
+    lb $t0, 245($s0)
     li $t1, 2
-    blt $t0, $t1, rmv_auto_unico    # Só tinha 1 veículo: remove e zera tipo
-    # Tinha 2 motos: copia a 2ª para a 1ª vaga (modelo e placa)
-    addi $a0, $s0, 248               # Destino: modelo do veículo 0
-    addi $a1, $s0, 288               # Origem: modelo do veículo 1 (248 + 40)
-    li $a2, 29                       # Máximo de 29 caracteres para o modelo
+    blt $t0, $t1, rmv_auto_unico
+    addi $a0, $s0, 248
+    addi $a1, $s0, 288
+    li $a2, 29
     jal strcpy
-    addi $a0, $s0, 278               # Destino: placa do veículo 0
-    addi $a1, $s0, 318               # Origem: placa do veículo 1 (278 + 40)
-    li $a2, 9                        # Máximo de 9 caracteres para a placa
+    addi $a0, $s0, 278
+    addi $a1, $s0, 318
+    li $a2, 9
     jal strcpy
-    j rmv_auto_dec_qtd               # Decrementa a quantidade
-
-rmv_auto_achou_1:                    # Veículo a remover está na posição 1 (sempre 2ª moto)
-    # Basta zerar o registro da posição 1 (modelo + placa = 40 bytes a partir do offset 288)
-    addi $t0, $s0, 288               # Início do registro do veículo 1
-    li $t1, 40                       # 40 bytes a zerar
+    j rmv_auto_dec_qtd
+rmv_auto_achou_1:
+    addi $t0, $s0, 288
+    li $t1, 40
 rmv_auto_zera_1:
     sb $zero, 0($t0)
     addi $t0, $t0, 1
     addi $t1, $t1, -1
     bnez $t1, rmv_auto_zera_1
-    j rmv_auto_dec_qtd               # Decrementa a quantidade
-
-rmv_auto_unico:                      # Só havia 1 veículo; remove e libera o AP para novo cadastro
-    # Zera os 40 bytes do veículo 0 (modelo + placa)
-    addi $t0, $s0, 248               # Início do registro do veículo 0
+    j rmv_auto_dec_qtd
+rmv_auto_unico:
+    addi $t0, $s0, 248
     li $t1, 40
 rmv_auto_zera_0:
     sb $zero, 0($t0)
     addi $t0, $t0, 1
     addi $t1, $t1, -1
     bnez $t1, rmv_auto_zera_0
-    sb $zero, 244($s0)               # Zera o tipo (offset 244): AP pode receber novo veículo
-
-rmv_auto_dec_qtd:                    # Decrementa o contador de veículos
-    lb $t0, 245($s0)                 # Quantidade atual
-    addi $t0, $t0, -1               # Menos um veículo
-    sb $t0, 245($s0)                 # Grava a nova quantidade
-    beqz $t0, rmv_auto_zera_tipo    # Se chegou a zero, zera o tipo também
-    j rmv_auto_fim                   # Ainda tem veículo: encerra
-
-rmv_auto_zera_tipo:                  # Nenhum veículo restante: zera o tipo
-    sb $zero, 244($s0)               # Tipo volta a 0 (AP livre para novo cadastro)
+    sb $zero, 244($s0)
+rmv_auto_dec_qtd:
+    lb $t0, 245($s0)
+    addi $t0, $t0, -1
+    sb $t0, 245($s0)
+    beqz $t0, rmv_auto_zera_tipo
     j rmv_auto_fim
-
-rmv_auto_nao_enc:                    # Placa não encontrada
-    la $a0, msg_auto_nao_enc         # "Falha: automovel nao encontrado"
+rmv_auto_zera_tipo:
+    sb $zero, 244($s0)
+    j rmv_auto_fim
+rmv_auto_nao_enc:
+    la $a0, msg_auto_nao_enc
     jal print_string_mmio
     j rmv_auto_fim
-
-rmv_auto_invalido:                   # AP digitado fora do intervalo do condomínio
+rmv_auto_invalido:
     la $a0, msg_ap_invalido
     jal print_string_mmio
-
-rmv_auto_fim:                        # Encerramento do rmvAuto
+rmv_auto_fim:
     lw $ra, 0($sp)
     lw $s0, 4($sp)
     lw $s1, 8($sp)
     addi $sp, $sp, 12
+    jr $ra
+
+# =========================================================
+# FUNÇÃO: comando_salvar
+# =========================================================
+# Grava os 7872 bytes do condomínio em "condominio.dat".
+# Usa syscalls 13 (open), 15 (write) e 16 (close).
+# Nenhuma mensagem em caso de sucesso (mesmo padrão dos outros comandos).
+comando_salvar:
+    addi $sp, $sp, -8                # Abre 8 bytes na pilha
+    sw $ra, 0($sp)                   # Salva o $ra
+    sw $s0, 4($sp)                   # Salva o $s0 (vai guardar o descritor do arquivo)
+
+    la $a0, nome_arquivo             # Nome do arquivo a abrir/criar
+    li $a1, 1                        # Flag 1 = escrita (cria ou sobrescreve)
+    li $a2, 0                        # Permissões padrão (ignoradas no MARS)
+    li $v0, 13                       # syscall 13 = open file
+    syscall                          # Descritor retorna em $v0
+
+    bltz $v0, salvar_erro            # Descritor negativo indica falha ao abrir
+
+    move $s0, $v0                    # $s0 = descritor (preservado durante o write)
+
+    move $a0, $s0                    # Descritor do arquivo
+    la $a1, condominio               # Início do bloco de dados a gravar
+    li $a2, 7872                     # Total de bytes a escrever (24 APs x 328)
+    li $v0, 15                       # syscall 15 = write file
+    syscall                          # Grava o bloco no arquivo
+
+    move $a0, $s0                    # Recupera o descritor salvo em $s0
+    li $v0, 16                       # syscall 16 = close file
+    syscall                          # Fecha o arquivo
+    j salvar_fim
+
+salvar_erro:                         # Não conseguiu abrir o arquivo para escrita
+    la $a0, msg_erro_salvar          # "Falha: erro ao salvar arquivo"
+    jal print_string_mmio
+
+salvar_fim:
+    lw $ra, 0($sp)
+    lw $s0, 4($sp)
+    addi $sp, $sp, 8
+    jr $ra
+
+# =========================================================
+# FUNÇÃO: rotina_recarregar
+# =========================================================
+# Lê "condominio.dat" e sobrescreve o condomínio na memória.
+# Chamada no main (carga automática) e pelo comando recarregar.
+# Se o arquivo não existir (descritor negativo), retorna sem mensagem.
+# Usa syscalls 13 (open), 14 (read) e 16 (close).
+rotina_recarregar:
+    addi $sp, $sp, -8                # Abre 8 bytes na pilha
+    sw $ra, 0($sp)                   # Salva o $ra
+    sw $s0, 4($sp)                   # Salva o $s0 (vai guardar o descritor do arquivo)
+
+    la $a0, nome_arquivo             # Nome do arquivo a abrir
+    li $a1, 0                        # Flag 0 = leitura
+    li $a2, 0                        # Permissões padrão
+    li $v0, 13                       # syscall 13 = open file
+    syscall                          # Descritor retorna em $v0
+
+    bltz $v0, rec_nao_enc            # Descritor negativo: arquivo inexistente (1ª execução)
+
+    move $s0, $v0                    # $s0 = descritor (preservado durante o read)
+
+    move $a0, $s0                    # Descritor do arquivo
+    la $a1, condominio               # Destino na memória
+    li $a2, 7872                     # Bytes a ler
+    li $v0, 14                       # syscall 14 = read file
+    syscall                          # Carrega os dados por cima do condomínio atual
+
+    move $a0, $s0                    # Recupera o descritor salvo em $s0
+    li $v0, 16                       # syscall 16 = close file
+    syscall                          # Fecha o arquivo
+    j rec_fim
+
+rec_nao_enc:                         # Arquivo não existe: condomínio permanece zerado
+rec_fim:
+    lw $ra, 0($sp)
+    lw $s0, 4($sp)
+    addi $sp, $sp, 8
     jr $ra
