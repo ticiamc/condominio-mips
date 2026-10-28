@@ -3,9 +3,10 @@
 # Atividade: Projeto 01 (PE1) da 1a VA
 # Disciplina: Arquitetura e Organização de Computadores
 # Semestre Letivo: 2026.2
-# Breve descrição: Implementação do comando addMorador, que cadastra
-#                  um morador em um AP respeitando o limite de 6
-#                  moradores, e da rotina strcpy de cópia de strings.
+# Breve descrição: Implementação do comando infoAp, que exibe todos
+#                  os moradores e veículos de um AP específico ou de
+#                  todos os APs em sequência quando passada a opção
+#                  "--all". Inclui função auxiliar imprime_ap.
 # =========================================================
 
 # ---------------------------------------------------------
@@ -26,15 +27,25 @@
     msg_max_moradores:   .asciiz "Falha: AP com numero max de moradores\n" # Mensagem para quando o AP já tem 6 moradores
 
     # Nomes dos comandos: o parser compara o que o usuário digitou com cada um deles
-    cmd_infoGeral:       .asciiz "infoGeral" # Comando que mostra o panorama de APs vazios e não vazios
-    cmd_formatar:        .asciiz "formatar"  # Comando que apaga todos os dados da execução atual
-    cmd_limparAp:        .asciiz "limparAp"  # Comando que exclui moradores e automóveis de um AP
+    cmd_infoGeral:       .asciiz "infoGeral"  # Comando que mostra o panorama de APs vazios e não vazios
+    cmd_formatar:        .asciiz "formatar"   # Comando que apaga todos os dados da execução atual
+    cmd_limparAp:        .asciiz "limparAp"   # Comando que exclui moradores e automóveis de um AP
     cmd_addMorador:      .asciiz "addMorador" # Comando que cadastra um morador em um AP
+    cmd_infoAp:          .asciiz "infoAp"     # Comando que exibe as informações de um AP ou de todos
 
     msg_info_nao_vazios: .asciiz "Nao vazios:\t" # Rótulo da linha de APs ocupados (sem acento por causa do MMIO)
     msg_info_vazios:     .asciiz "Vazios:\t\t"   # Rótulo da linha de APs desocupados
     msg_porcentagem_ini: .asciiz " ("            # Abre o parêntese da porcentagem
     msg_porcentagem_fim: .asciiz "%)\n"          # Fecha a porcentagem e quebra a linha
+
+    msg_ap_label:        .asciiz "AP: "          # Rótulo da linha com o número do AP
+    msg_ap_vazio:        .asciiz "Apartamento vazio\n" # Texto para AP sem moradores
+    msg_moradores_label: .asciiz "Moradores:\n"  # Cabeçalho da lista de moradores
+    msg_carro_label:     .asciiz "Carro:\n"      # Cabeçalho da seção de carro
+    msg_moto_label:      .asciiz "Moto:\n"       # Cabeçalho da seção de motos
+    msg_sep_veiculo:     .asciiz " / "           # Separador entre modelo e placa de cada veículo
+    msg_newline:         .asciiz "\n"            # Quebra de linha para separar os APs no infoAp --all
+    str_all:             .asciiz "all"           # Constante para comparar com a opção --all
 
     buffer_comando:      .space 256  # Reserva 256 bytes contíguos para armazenar o input do usuário
     buffer_int:          .space 12   # Espaço para converter um inteiro em texto antes de imprimir
@@ -225,6 +236,11 @@ parser_comandos:                     # Rotina de interpretação (decifra o que 
     jal strcmp                       # Chama nossa rotina de comparação
     beqz $v0, executa_addMorador     # Se deu 0 (iguais), pulamos para o addMorador
 
+    move $a0, $s0                    # Passa o comando digitado como 1º argumento
+    la $a1, cmd_infoAp               # Passa a string "infoAp" como 2º argumento
+    jal strcmp                       # Chama nossa rotina de comparação
+    beqz $v0, executa_infoAp         # Se deu 0 (iguais), pulamos para o infoAp
+
 comando_invalido:                    # Chegamos aqui se o comando não existe ou veio com opções erradas
     la $a0, msg_invalido             # Caso o comando seja desconhecido, puxa a mensagem de erro
     jal print_string_mmio            # Chama a função de print para exibir "Comando invalido"
@@ -257,6 +273,14 @@ executa_addMorador:                  # Desvio do comando addMorador
     lb $t1, 0($a1)                   # Olha o primeiro caractere do nome
     beqz $t1, comando_invalido       # Nome vazio ("--" sem nada depois) não vale
     jal comando_addMorador           # Chama a rotina que cadastra o morador
+    j parser_fim                     # Vai para o encerramento do interpretador
+
+executa_infoAp:                      # Desvio do comando infoAp
+    li $t0, 1                        # O infoAp exige exatamente 1 opção
+    bne $s1, $t0, comando_invalido   # Quantidade diferente de 1 opção é inválido
+    la $t0, opcoes                   # Carrega o endereço do vetor de opções
+    lw $a0, 0($t0)                   # 1ª opção: número do AP ou "all"
+    jal comando_infoAp               # Chama a rotina que exibe as informações
     j parser_fim                     # Vai para o encerramento do interpretador
 
 parser_fim:                          # Encerramento do interpretador
@@ -520,3 +544,160 @@ add_mor_fim:                         # Encerramento do comando
     lw $s1, 8($sp)                   # Recupera o $s1 original da pilha
     addi $sp, $sp, 12                # Desaloca o espaço da pilha
     jr $ra                           # Retorna para o parser
+
+# =========================================================
+# FUNÇÃO: comando_infoAp
+# =========================================================
+# Exibe informações de um AP ou de todos | $a0 = string da opção ("all" ou número do AP)
+comando_infoAp:
+    addi $sp, $sp, -12               # Abre 12 bytes na pilha
+    sw $ra, 0($sp)                   # Salva o $ra, pois chamamos outras funções
+    sw $s0, 4($sp)                   # Salva o $s0 (índice atual no laço do --all)
+    sw $s1, 8($sp)                   # Salva o $s1 (endereço da opção recebida)
+    move $s1, $a0                    # Guarda a string da opção, já que converte_ap mexe em $a0
+
+    la $a1, str_all                  # Prepara "all" para comparação
+    move $a0, $s1                    # Passa a opção digitada
+    jal strcmp                       # Compara com "all"
+    bnez $v0, info_ap_unico          # Se não for "all", vai exibir só um AP
+
+info_ap_all:                         # Modo --all: percorre os 24 APs em ordem crescente
+    li $s0, 0                        # Começa pelo índice 0 (AP 101)
+info_all_loop:                       # Laço que imprime cada AP
+    li $t0, 24                       # Total de APs
+    beq $s0, $t0, info_fim           # Se o índice chegou a 24, terminamos
+    move $a0, $s0                    # Passa o índice do AP atual
+    jal imprime_ap                   # Chama a função que imprime um AP pelo índice
+    addi $s0, $s0, 1                 # Avança para o próximo AP
+    j info_all_loop                  # Continua o laço
+
+info_ap_unico:                       # Modo com número de AP específico
+    move $a0, $s1                    # Passa a string do AP para converter
+    jal converte_ap                  # Converte o texto no índice
+    bltz $v0, info_ap_invalido       # Índice -1 significa AP inválido
+    move $a0, $v0                    # Passa o índice para a função de impressão
+    jal imprime_ap                   # Imprime as informações do AP
+    j info_fim                       # Vai para o encerramento
+
+info_ap_invalido:                    # AP digitado fora do intervalo do condomínio
+    la $a0, msg_ap_invalido          # Puxa "Falha: AP invalido"
+    jal print_string_mmio            # Exibe no terminal
+
+info_fim:                            # Encerramento do infoAp
+    lw $ra, 0($sp)                   # Recupera o $ra
+    lw $s0, 4($sp)                   # Recupera o $s0
+    lw $s1, 8($sp)                   # Recupera o $s1
+    addi $sp, $sp, 12                # Desaloca a pilha
+    jr $ra                           # Retorna para o parser
+
+# =========================================================
+# FUNÇÃO: imprime_ap
+# =========================================================
+# Imprime todas as informações de um AP dado seu índice | $a0 = índice (0 a 23)
+imprime_ap:
+    addi $sp, $sp, -16               # Abre 16 bytes na pilha
+    sw $ra, 0($sp)                   # Salva o $ra
+    sw $s0, 4($sp)                   # Salva o $s0 (endereço base do AP)
+    sw $s1, 8($sp)                   # Salva o $s1 (índice recebido — para calcular o número do AP)
+    sw $s2, 12($sp)                  # Salva o $s2 (contador de laços)
+    move $s1, $a0                    # Guarda o índice antes de chamar endereco_ap
+
+    jal endereco_ap                  # Calcula o endereço base do AP
+    move $s0, $v0                    # $s0 = endereço do AP na memória
+
+    # --- Imprime "AP: <numero>\n" ---
+    la $a0, msg_ap_label             # "AP: "
+    jal print_string_mmio            # Imprime o rótulo
+
+    # Converte índice em número do AP: (índice/2 + 1)*100 + (índice mod 2) + 1
+    srl $t0, $s1, 1                  # índice / 2 (andar - 1)
+    addi $t0, $t0, 1                 # + 1 = andar
+    li $t1, 100                      # Fator do andar
+    mul $t0, $t0, $t1                # andar * 100
+    andi $t1, $s1, 1                 # índice mod 2 (0 ou 1)
+    addi $t1, $t1, 1                 # + 1 = número do AP no andar
+    add $a0, $t0, $t1                # número completo do AP
+    jal print_int_mmio               # Imprime o número
+
+    la $a0, msg_newline              # "\n"
+    jal print_string_mmio            # Quebra a linha após o número do AP
+
+    # --- Verifica se o AP está vazio ---
+    lw $t0, 0($s0)                   # Lê a quantidade de moradores
+    beqz $t0, imprime_ap_vazio       # Se for 0, imprime "Apartamento vazio" e encerra
+
+    # --- Imprime "Moradores:\n" e cada nome ---
+    la $a0, msg_moradores_label      # "Moradores:\n"
+    jal print_string_mmio            # Cabeçalho da lista
+
+    li $s2, 0                        # Contador de moradores já impressos
+imprime_moradores_loop:              # Laço pelos nomes cadastrados
+    lw $t0, 0($s0)                   # Relê a quantidade (pode ter mudado entre chamadas, por segurança)
+    beq $s2, $t0, imprime_moradores_fim # Imprimiu todos os moradores
+    li $t1, 40                       # Cada nome tem 40 bytes
+    mul $t1, $s2, $t1                # Deslocamento do nome atual
+    addi $t1, $t1, 4                 # Os nomes começam no offset 4
+    add $a0, $s0, $t1                # Endereço do nome atual
+    jal print_string_mmio            # Imprime o nome
+    la $a0, msg_newline              # "\n"
+    jal print_string_mmio            # Quebra de linha após o nome
+    addi $s2, $s2, 1                 # Próximo morador
+    j imprime_moradores_loop         # Continua o laço
+
+imprime_moradores_fim:               # Acabou a lista de moradores
+    # --- Verifica e imprime veículos ---
+    lb $t0, 244($s0)                 # Tipo do veículo (offset 244): 0, 'c' ou 'm'
+    beqz $t0, imprime_ap_fim         # Sem veículo nenhum: encerra
+
+    li $t1, 99                       # ASCII de 'c'
+    beq $t0, $t1, imprime_carro      # Tipo é 'c': vai para a seção de carro
+
+imprime_motos:                       # Tipo é 'm': imprime o rótulo e as motos
+    la $a0, msg_moto_label           # "Moto:\n"
+    jal print_string_mmio            # Cabeçalho da seção de motos
+
+    li $s2, 0                        # Contador de motos já impressas
+    lb $t2, 245($s0)                 # Quantidade de motos cadastradas (offset 245)
+imprime_motos_loop:                  # Laço pelas motos
+    beq $s2, $t2, imprime_ap_fim     # Imprimiu todas as motos
+    li $t1, 40                       # Cada veículo ocupa 40 bytes (30 modelo + 10 placa)
+    mul $t1, $s2, $t1                # Deslocamento do veículo atual
+    addi $t1, $t1, 248               # Os veículos começam no offset 248
+    add $a0, $s0, $t1                # Endereço do modelo da moto atual
+    jal print_string_mmio            # Imprime o modelo
+    la $a0, msg_sep_veiculo          # " / "
+    jal print_string_mmio            # Separador entre modelo e placa
+    li $t1, 40                       # Recalcula o deslocamento para a placa
+    mul $t1, $s2, $t1
+    addi $t1, $t1, 278               # offset 248 + 30 bytes de modelo = offset 278
+    add $a0, $s0, $t1                # Endereço da placa da moto atual
+    jal print_string_mmio            # Imprime a placa
+    la $a0, msg_newline              # "\n"
+    jal print_string_mmio            # Quebra de linha após cada moto
+    addi $s2, $s2, 1                 # Próxima moto
+    j imprime_motos_loop             # Continua o laço
+
+imprime_carro:                       # Seção de exibição do carro
+    la $a0, msg_carro_label          # "Carro:\n"
+    jal print_string_mmio            # Cabeçalho da seção de carro
+    addi $a0, $s0, 248               # Modelo do carro começa no offset 248
+    jal print_string_mmio            # Imprime o modelo
+    la $a0, msg_sep_veiculo          # " / "
+    jal print_string_mmio            # Separador
+    addi $a0, $s0, 278               # Placa do carro: offset 248 + 30 bytes de modelo
+    jal print_string_mmio            # Imprime a placa
+    la $a0, msg_newline              # "\n"
+    jal print_string_mmio            # Quebra de linha
+    j imprime_ap_fim                 # Encerra a impressão do AP
+
+imprime_ap_vazio:                    # AP sem moradores
+    la $a0, msg_ap_vazio             # "Apartamento vazio\n"
+    jal print_string_mmio            # Exibe a mensagem
+
+imprime_ap_fim:                      # Encerramento da função imprime_ap
+    lw $ra, 0($sp)                   # Recupera o $ra
+    lw $s0, 4($sp)                   # Recupera o $s0
+    lw $s1, 8($sp)                   # Recupera o $s1
+    lw $s2, 12($sp)                  # Recupera o $s2
+    addi $sp, $sp, 16                # Desaloca a pilha
+    jr $ra                           # Retorna para quem chamou
