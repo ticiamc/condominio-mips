@@ -25,8 +25,8 @@
 |---|---|---|
 | `addMorador --AP --Nome` | Cadastra um morador no AP | `addMorador --101 --Ana Silva` |
 | `rmvMorador --AP --Nome` | Remove um morador do AP | `rmvMorador --101 --Ana Silva` |
-| `addAuto --AP --tipo --modelo --placa` | Cadastra veículo (`c`=carro, `m`=moto) | `addAuto --303 --c --Fiat Uno --ABC1234` |
-| `rmvAuto --AP --placa` | Remove veículo pela placa | `rmvAuto --303 --ABC1234` |
+| `addAuto --AP --tipo --modelo --placa` | Cadastra veículo (`c`=carro, `m`=moto) | `addAuto --302 --c --Fiat Uno --ABC1234` |
+| `rmvAuto --AP --placa` | Remove veículo pela placa | `rmvAuto --302 --ABC1234` |
 | `limparAp --AP` | Esvazia completamente um AP | `limparAp --1001` |
 | `infoAp --AP` | Exibe moradores e veículos de um AP | `infoAp --1102` |
 | `infoAp --all` | Exibe todos os 24 APs em ordem | `infoAp --all` |
@@ -34,6 +34,8 @@
 | `salvar` | Grava todos os dados em `condominio.dat` | `salvar` |
 | `recarregar` | Restaura os dados do arquivo (descarta alterações não salvas) | `recarregar` |
 | `formatar` | Apaga tudo da sessão atual (não grava no arquivo) | `formatar` |
+
+As opções seguem o formato ` --` (espaço + dois hífens) definido no enunciado escrito. Os APs vão de 101 a 1202 e terminam sempre em 01 ou 02 (12 andares × 2 APs).
 
 ---
 
@@ -66,6 +68,7 @@ Fórmula do índice: `(andar - 1) × 2 + (final - 1)` → AP 101 = índice 0, AP
 
 | Situação | Decisão | Motivo |
 |---|---|---|
+| Numeração dos APs | De 101 a 1202, final 01 ou 02; outros números dão `Falha: AP invalido` | O prédio tem 2 APs por andar; os exemplos do enunciado com o AP 303 (e o 300/100 do `infoGeral`) parecem vir de outra configuração de prédio |
 | Veículo em AP vazio | Recusar com `Falha: AP vazio` | O `infoAp` de AP sem moradores mostra só "Apartamento vazio"; carro ficaria oculto |
 | `AddAuto` vs `addAuto` | Aceitar os dois | O exemplo do enunciado usa minúsculo; o título pode ser correção automática do editor |
 | Placa repetida | Não verificar; `rmvAuto` remove o primeiro com a placa | Enunciado só prevê falhas de limite, AP e tipo |
