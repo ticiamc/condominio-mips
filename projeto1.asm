@@ -3,10 +3,10 @@
 # Atividade: Projeto 01 (PE1) da 1a VA
 # Disciplina: Arquitetura e Organização de Computadores
 # Semestre Letivo: 2026.2
-# Breve descrição: Implementação do comando addAuto (e addAuto com A
-#                  maiúsculo), que cadastra um carro ou moto em um AP
-#                  respeitando a regra de 1 carro OU até 2 motos,
-#                  sem mistura. AP vazio também é recusado.
+# Breve descrição: Implementação do comando rmvAuto, que remove um
+#                  veículo de um AP pela placa. Se for a 1ª de 2 motos,
+#                  copia a 2ª para a 1ª vaga. Se a quantidade cair a
+#                  zero, zera o tipo para liberar o AP para um novo cadastro.
 # =========================================================
 
 # ---------------------------------------------------------
@@ -24,41 +24,43 @@
     banner:              .asciiz "LS-shell>> " # Banner com nossas iniciais exigido pelo projeto
     msg_invalido:        .asciiz "Comando invalido\n" # Mensagem padrão para comandos não reconhecidos
     msg_ap_invalido:     .asciiz "Falha: AP invalido\n" # Mensagem para quando o AP digitado não existe no condomínio
-    msg_max_moradores:   .asciiz "Falha: AP com numero max de moradores\n" # Mensagem para quando o AP já tem 6 moradores
-    msg_nao_encontrado:  .asciiz "Falha: morador nao encontrado\n" # Mensagem quando o nome não consta no AP
-    msg_max_autos:       .asciiz "Falha: AP com numero max de automoveis\n" # Mensagem quando não cabe mais veículo
-    msg_tipo_invalido:   .asciiz "Falha: tipo invalido\n" # Mensagem para tipo diferente de "c" ou "m"
+    msg_max_moradores:   .asciiz "Falha: AP com numero max de moradores\n" # AP já tem 6 moradores
+    msg_nao_encontrado:  .asciiz "Falha: morador nao encontrado\n" # Nome não consta no AP
+    msg_max_autos:       .asciiz "Falha: AP com numero max de automoveis\n" # Não cabe mais veículo
+    msg_tipo_invalido:   .asciiz "Falha: tipo invalido\n" # Tipo diferente de "c" ou "m"
     msg_ap_vazio_auto:   .asciiz "Falha: AP vazio\n"      # AP sem moradores não pode ter veículo
+    msg_auto_nao_enc:    .asciiz "Falha: automovel nao encontrado\n" # Placa não cadastrada no AP
 
-    # Nomes dos comandos: o parser compara o que o usuário digitou com cada um deles
-    cmd_infoGeral:       .asciiz "infoGeral"   # Mostra o panorama de APs vazios e não vazios
-    cmd_formatar:        .asciiz "formatar"    # Apaga todos os dados da execução atual
-    cmd_limparAp:        .asciiz "limparAp"    # Exclui moradores e automóveis de um AP
-    cmd_addMorador:      .asciiz "addMorador"  # Cadastra um morador em um AP
-    cmd_infoAp:          .asciiz "infoAp"      # Exibe as informações de um AP ou de todos
-    cmd_rmvMorador:      .asciiz "rmvMorador"  # Remove um morador de um AP pelo nome
-    cmd_addAuto_min:     .asciiz "addAuto"     # Cadastra um veículo (variante com 'a' minúsculo)
-    cmd_addAuto_mai:     .asciiz "AddAuto"     # Cadastra um veículo (variante com 'A' maiúsculo, aceita por convenção)
+    # Nomes dos comandos
+    cmd_infoGeral:       .asciiz "infoGeral"
+    cmd_formatar:        .asciiz "formatar"
+    cmd_limparAp:        .asciiz "limparAp"
+    cmd_addMorador:      .asciiz "addMorador"
+    cmd_infoAp:          .asciiz "infoAp"
+    cmd_rmvMorador:      .asciiz "rmvMorador"
+    cmd_addAuto_min:     .asciiz "addAuto"
+    cmd_addAuto_mai:     .asciiz "AddAuto"
+    cmd_rmvAuto:         .asciiz "rmvAuto"   # Remove um veículo de um AP pela placa
 
-    msg_info_nao_vazios: .asciiz "Nao vazios:\t" # Rótulo de APs ocupados
-    msg_info_vazios:     .asciiz "Vazios:\t\t"   # Rótulo de APs desocupados
-    msg_porcentagem_ini: .asciiz " ("            # Abre o parêntese da porcentagem
-    msg_porcentagem_fim: .asciiz "%)\n"          # Fecha a porcentagem e quebra a linha
+    msg_info_nao_vazios: .asciiz "Nao vazios:\t"
+    msg_info_vazios:     .asciiz "Vazios:\t\t"
+    msg_porcentagem_ini: .asciiz " ("
+    msg_porcentagem_fim: .asciiz "%)\n"
 
-    msg_ap_label:        .asciiz "AP: "          # Rótulo da linha com o número do AP
-    msg_ap_vazio:        .asciiz "Apartamento vazio\n" # AP sem moradores
-    msg_moradores_label: .asciiz "Moradores:\n"  # Cabeçalho da lista de moradores
-    msg_carro_label:     .asciiz "Carro:\n"      # Cabeçalho da seção de carro
-    msg_moto_label:      .asciiz "Moto:\n"       # Cabeçalho da seção de motos
-    msg_sep_veiculo:     .asciiz " / "           # Separador entre modelo e placa
-    msg_newline:         .asciiz "\n"            # Quebra de linha genérica
-    str_all:             .asciiz "all"           # Constante para a opção --all do infoAp
+    msg_ap_label:        .asciiz "AP: "
+    msg_ap_vazio:        .asciiz "Apartamento vazio\n"
+    msg_moradores_label: .asciiz "Moradores:\n"
+    msg_carro_label:     .asciiz "Carro:\n"
+    msg_moto_label:      .asciiz "Moto:\n"
+    msg_sep_veiculo:     .asciiz " / "
+    msg_newline:         .asciiz "\n"
+    str_all:             .asciiz "all"
 
-    buffer_comando:      .space 256  # Reserva 256 bytes para o input do usuário
-    buffer_int:          .space 12   # Buffer de conversão de inteiro para texto
-    .align 2                         # Alinha em múltiplo de 4 bytes
-    opcoes:              .space 16   # Vetor de até 4 endereços de opções
-    condominio:          .space 7872 # 24 APs x 328 bytes
+    buffer_comando:      .space 256
+    buffer_int:          .space 12
+    .align 2
+    opcoes:              .space 16
+    condominio:          .space 7872
 
 .text
 .globl main
@@ -67,13 +69,10 @@ main:
 loop_shell:
     la $a0, banner
     jal print_string_mmio
-
     la $a0, buffer_comando
     jal read_string_mmio
-
     la $a0, buffer_comando
     jal parser_comandos
-
     j loop_shell
 
 # =========================================================
@@ -206,10 +205,8 @@ parser_comandos:
     sw $s0, 4($sp)
     sw $s1, 8($sp)
     move $s0, $a0
-
     lb $t0, 0($s0)
     beqz $t0, parser_fim
-
     move $a0, $s0
     jal separa_opcoes
     move $s1, $v0
@@ -244,15 +241,20 @@ parser_comandos:
     jal strcmp
     beqz $v0, executa_rmvMorador
 
-    move $a0, $s0                    # Compara com "addAuto" (minúsculo)
+    move $a0, $s0
     la $a1, cmd_addAuto_min
     jal strcmp
     beqz $v0, executa_addAuto
 
-    move $a0, $s0                    # Compara com "AddAuto" (maiúsculo)
+    move $a0, $s0
     la $a1, cmd_addAuto_mai
     jal strcmp
     beqz $v0, executa_addAuto
+
+    move $a0, $s0
+    la $a1, cmd_rmvAuto
+    jal strcmp
+    beqz $v0, executa_rmvAuto
 
 comando_invalido:
     la $a0, msg_invalido
@@ -307,19 +309,30 @@ executa_rmvMorador:
     jal comando_rmvMorador
     j parser_fim
 
-executa_addAuto:                     # Desvio do comando addAuto / AddAuto
+executa_addAuto:
     li $t0, 4
-    bne $s1, $t0, comando_invalido   # addAuto exige exatamente 4 opções
+    bne $s1, $t0, comando_invalido
+    la $t0, opcoes
+    lw $a0, 0($t0)
+    lw $a1, 4($t0)
+    lw $a2, 8($t0)
+    lw $a3, 12($t0)
+    lb $t1, 0($a2)
+    beqz $t1, comando_invalido
+    lb $t1, 0($a3)
+    beqz $t1, comando_invalido
+    jal comando_addAuto
+    j parser_fim
+
+executa_rmvAuto:                     # Desvio do comando rmvAuto
+    li $t0, 2
+    bne $s1, $t0, comando_invalido   # rmvAuto exige exatamente 2 opções
     la $t0, opcoes
     lw $a0, 0($t0)                   # 1ª opção: número do AP
-    lw $a1, 4($t0)                   # 2ª opção: tipo ("c" ou "m")
-    lw $a2, 8($t0)                   # 3ª opção: modelo
-    lw $a3, 12($t0)                  # 4ª opção: placa
-    lb $t1, 0($a2)
-    beqz $t1, comando_invalido       # Modelo vazio não vale
-    lb $t1, 0($a3)
+    lw $a1, 4($t0)                   # 2ª opção: placa do veículo
+    lb $t1, 0($a1)
     beqz $t1, comando_invalido       # Placa vazia não vale
-    jal comando_addAuto
+    jal comando_rmvAuto
     j parser_fim
 
 parser_fim:
@@ -779,118 +792,197 @@ rmv_mor_fim:
 # =========================================================
 # FUNÇÃO: comando_addAuto
 # =========================================================
-# Cadastra um veículo | $a0 = AP, $a1 = tipo, $a2 = modelo, $a3 = placa
 comando_addAuto:
-    addi $sp, $sp, -20               # Abre 20 bytes na pilha
-    sw $ra, 0($sp)                   # Salva o $ra
-    sw $s0, 4($sp)                   # Salva o $s0 (endereço base do AP)
-    sw $s1, 8($sp)                   # Salva o $s1 (tipo do veículo)
-    sw $s2, 12($sp)                  # Salva o $s2 (modelo)
-    sw $s3, 16($sp)                  # Salva o $s3 (placa)
-    move $s1, $a1                    # Guarda o tipo antes das próximas chamadas
-    move $s2, $a2                    # Guarda o modelo
-    move $s3, $a3                    # Guarda a placa
-
-    jal converte_ap                  # Converte texto do AP em índice
-    bltz $v0, add_auto_invalido      # -1 = AP inválido
-
+    addi $sp, $sp, -20
+    sw $ra, 0($sp)
+    sw $s0, 4($sp)
+    sw $s1, 8($sp)
+    sw $s2, 12($sp)
+    sw $s3, 16($sp)
+    move $s1, $a1
+    move $s2, $a2
+    move $s3, $a3
+    jal converte_ap
+    bltz $v0, add_auto_invalido
     move $a0, $v0
-    jal endereco_ap                  # Calcula o endereço base do AP
-    move $s0, $v0                    # $s0 = endereço do AP
-
-    # Valida o tipo ANTES de qualquer outra checagem (igual ao enunciado)
-    lb $t0, 0($s1)                   # Primeiro caractere do tipo
-    lb $t1, 1($s1)                   # Segundo caractere (deve ser \0)
-    bnez $t1, add_auto_tipo_inv      # Tipo com mais de 1 caractere é inválido
-    li $t2, 99                       # ASCII 'c'
-    beq $t0, $t2, add_auto_tipo_ok   # Tipo é 'c': válido
-    li $t2, 109                      # ASCII 'm'
-    beq $t0, $t2, add_auto_tipo_ok   # Tipo é 'm': válido
-    j add_auto_tipo_inv              # Qualquer outro caractere: inválido
-
-add_auto_tipo_ok:                    # Tipo validado; agora checa se AP tem moradores
-    lw $t0, 0($s0)                   # Quantidade de moradores
-    beqz $t0, add_auto_vazio         # AP sem moradores não pode ter veículo
-
-    # Checa a regra de limite: 1 carro ou até 2 motos, sem mistura
-    lb $t0, 244($s0)                 # Tipo atual de veículo no AP
-    beqz $t0, add_auto_livre         # Nenhum veículo ainda: pode cadastrar
-
-    # Já tem algum veículo — aplica a regra
-    j add_auto_cheio                 # Qualquer veículo novo (carro no carro, moto no carro,
-                                     # carro na moto, e a checagem de 2 motos vem abaixo)
-
-add_auto_livre:                      # Primeiro veículo do AP
-    lb $t0, 0($s1)                   # Lê o tipo do veículo a cadastrar
-    li $t1, 99                       # 'c' = carro
-    beq $t0, $t1, add_auto_grava     # Carro no AP vazio de veículos: OK
-    j add_auto_grava_moto_check      # Moto: verifica quantas já tem (vai para 0 neste caso)
-
-add_auto_grava_moto_check:           # Chegamos aqui quando o tipo já existente é 'm' ou quando vamos adicionar a 1ª moto
-    lb $t0, 244($s0)                 # Tipo atual no AP
-    beqz $t0, add_auto_grava         # Nenhum veículo ainda: pode gravar
-    li $t1, 109                      # 'm'
-    bne $t0, $t1, add_auto_cheio     # Tipo atual não é moto: rejeita (ex: carro no AP, chega moto)
-    # Tipo atual é moto; agora checa se o novo também é moto
+    jal endereco_ap
+    move $s0, $v0
+    lb $t0, 0($s1)
+    lb $t1, 1($s1)
+    bnez $t1, add_auto_tipo_inv
+    li $t2, 99
+    beq $t0, $t2, add_auto_tipo_ok
+    li $t2, 109
+    beq $t0, $t2, add_auto_tipo_ok
+    j add_auto_tipo_inv
+add_auto_tipo_ok:
+    lw $t0, 0($s0)
+    beqz $t0, add_auto_vazio
+    lb $t0, 244($s0)
+    beqz $t0, add_auto_livre
+    j add_auto_cheio
+add_auto_livre:
+    lb $t0, 0($s1)
+    li $t1, 99
+    beq $t0, $t1, add_auto_grava
+    j add_auto_grava_moto_check
+add_auto_grava_moto_check:
+    lb $t0, 244($s0)
+    beqz $t0, add_auto_grava
+    li $t1, 109
+    bne $t0, $t1, add_auto_cheio
     lb $t0, 0($s1)
     li $t1, 109
-    bne $t0, $t1, add_auto_cheio     # Novo veículo não é moto (é carro): rejeita
-    lb $t0, 245($s0)                 # Quantidade atual de motos
+    bne $t0, $t1, add_auto_cheio
+    lb $t0, 245($s0)
     li $t1, 2
-    bge $t0, $t1, add_auto_cheio     # Já tem 2 motos: rejeita
-    j add_auto_grava                 # Cabe mais uma moto
-
-add_auto_cheio:                      # Limite atingido ou regra violada
-    la $a0, msg_max_autos            # "Falha: AP com numero max de automoveis"
+    bge $t0, $t1, add_auto_cheio
+    j add_auto_grava
+add_auto_cheio:
+    la $a0, msg_max_autos
     jal print_string_mmio
     j add_auto_fim
-
-add_auto_vazio:                      # AP sem moradores
-    la $a0, msg_ap_vazio_auto        # "Falha: AP vazio"
+add_auto_vazio:
+    la $a0, msg_ap_vazio_auto
     jal print_string_mmio
     j add_auto_fim
-
-add_auto_tipo_inv:                   # Tipo diferente de "c" ou "m"
-    la $a0, msg_tipo_invalido        # "Falha: tipo invalido"
+add_auto_tipo_inv:
+    la $a0, msg_tipo_invalido
     jal print_string_mmio
     j add_auto_fim
-
-add_auto_grava:                      # Gravação do veículo na memória
-    lb $t0, 245($s0)                 # Quantidade atual de veículos (antes de gravar)
-    li $t1, 40                       # Cada veículo ocupa 40 bytes
-    mul $t1, $t0, $t1
-    addi $t1, $t1, 248               # Offset do modelo: 248 + qtd * 40
-    add $a0, $s0, $t1                # Endereço do modelo
-    move $a1, $s2                    # Modelo a gravar
-    li $a2, 29                       # Máximo de 29 caracteres para o modelo
-    jal strcpy
-
-    lb $t0, 245($s0)                 # Relê a quantidade para calcular o offset da placa
+add_auto_grava:
+    lb $t0, 245($s0)
     li $t1, 40
     mul $t1, $t0, $t1
-    addi $t1, $t1, 278               # Offset da placa: 248 + qtd*40 + 30
-    add $a0, $s0, $t1                # Endereço da placa
-    move $a1, $s3                    # Placa a gravar
-    li $a2, 9                        # Máximo de 9 caracteres para a placa
+    addi $t1, $t1, 248
+    add $a0, $s0, $t1
+    move $a1, $s2
+    li $a2, 29
     jal strcpy
-
-    lb $t0, 0($s1)                   # Tipo do veículo a gravar
-    sb $t0, 244($s0)                 # Atualiza o tipo no offset 244
-
-    lb $t0, 245($s0)                 # Quantidade atual
-    addi $t0, $t0, 1                 # Mais um veículo
-    sb $t0, 245($s0)                 # Grava a nova quantidade no offset 245
+    lb $t0, 245($s0)
+    li $t1, 40
+    mul $t1, $t0, $t1
+    addi $t1, $t1, 278
+    add $a0, $s0, $t1
+    move $a1, $s3
+    li $a2, 9
+    jal strcpy
+    lb $t0, 0($s1)
+    sb $t0, 244($s0)
+    lb $t0, 245($s0)
+    addi $t0, $t0, 1
+    sb $t0, 245($s0)
     j add_auto_fim
-
-add_auto_invalido:                   # AP digitado fora do intervalo do condomínio
+add_auto_invalido:
     la $a0, msg_ap_invalido
     jal print_string_mmio
-
-add_auto_fim:                        # Encerramento do addAuto
+add_auto_fim:
     lw $ra, 0($sp)
     lw $s0, 4($sp)
     lw $s1, 8($sp)
     lw $s2, 12($sp)
     lw $s3, 16($sp)
     addi $sp, $sp, 20
+    jr $ra
+
+# =========================================================
+# FUNÇÃO: comando_rmvAuto
+# =========================================================
+# Remove um veículo de um AP pela placa | $a0 = AP, $a1 = placa
+comando_rmvAuto:
+    addi $sp, $sp, -12               # Abre 12 bytes na pilha
+    sw $ra, 0($sp)                   # Salva o $ra
+    sw $s0, 4($sp)                   # Salva o $s0 (endereço base do AP)
+    sw $s1, 8($sp)                   # Salva o $s1 (placa a buscar)
+    move $s1, $a1                    # Guarda a placa antes das próximas chamadas
+
+    jal converte_ap                  # Converte texto do AP em índice
+    bltz $v0, rmv_auto_invalido      # -1 = AP inválido
+
+    move $a0, $v0
+    jal endereco_ap                  # Calcula o endereço base do AP
+    move $s0, $v0                    # $s0 = endereço do AP
+
+    lb $t0, 245($s0)                 # Quantidade de veículos cadastrados
+    beqz $t0, rmv_auto_nao_enc      # Sem veículos: placa não pode estar aqui
+
+    # Compara a placa do veículo 0
+    addi $a0, $s0, 278               # Placa do veículo 0: offset 278
+    move $a1, $s1
+    jal strcmp
+    beqz $v0, rmv_auto_achou_0      # Achou na posição 0
+
+    lb $t0, 245($s0)                 # Verifica se tem um segundo veículo
+    li $t1, 2
+    blt $t0, $t1, rmv_auto_nao_enc  # Só tinha 1 veículo e não bateu: não encontrado
+
+    # Compara a placa do veículo 1
+    addi $a0, $s0, 318               # Placa do veículo 1: offset 248 + 40 + 30 = 318
+    move $a1, $s1
+    jal strcmp
+    beqz $v0, rmv_auto_achou_1      # Achou na posição 1
+    j rmv_auto_nao_enc               # Não encontrado em nenhum dos dois
+
+rmv_auto_achou_0:                    # Veículo a remover está na posição 0
+    lb $t0, 245($s0)                 # Quantidade atual
+    li $t1, 2
+    blt $t0, $t1, rmv_auto_unico    # Só tinha 1 veículo: remove e zera tipo
+    # Tinha 2 motos: copia a 2ª para a 1ª vaga (modelo e placa)
+    addi $a0, $s0, 248               # Destino: modelo do veículo 0
+    addi $a1, $s0, 288               # Origem: modelo do veículo 1 (248 + 40)
+    li $a2, 29                       # Máximo de 29 caracteres para o modelo
+    jal strcpy
+    addi $a0, $s0, 278               # Destino: placa do veículo 0
+    addi $a1, $s0, 318               # Origem: placa do veículo 1 (278 + 40)
+    li $a2, 9                        # Máximo de 9 caracteres para a placa
+    jal strcpy
+    j rmv_auto_dec_qtd               # Decrementa a quantidade
+
+rmv_auto_achou_1:                    # Veículo a remover está na posição 1 (sempre 2ª moto)
+    # Basta zerar o registro da posição 1 (modelo + placa = 40 bytes a partir do offset 288)
+    addi $t0, $s0, 288               # Início do registro do veículo 1
+    li $t1, 40                       # 40 bytes a zerar
+rmv_auto_zera_1:
+    sb $zero, 0($t0)
+    addi $t0, $t0, 1
+    addi $t1, $t1, -1
+    bnez $t1, rmv_auto_zera_1
+    j rmv_auto_dec_qtd               # Decrementa a quantidade
+
+rmv_auto_unico:                      # Só havia 1 veículo; remove e libera o AP para novo cadastro
+    # Zera os 40 bytes do veículo 0 (modelo + placa)
+    addi $t0, $s0, 248               # Início do registro do veículo 0
+    li $t1, 40
+rmv_auto_zera_0:
+    sb $zero, 0($t0)
+    addi $t0, $t0, 1
+    addi $t1, $t1, -1
+    bnez $t1, rmv_auto_zera_0
+    sb $zero, 244($s0)               # Zera o tipo (offset 244): AP pode receber novo veículo
+
+rmv_auto_dec_qtd:                    # Decrementa o contador de veículos
+    lb $t0, 245($s0)                 # Quantidade atual
+    addi $t0, $t0, -1               # Menos um veículo
+    sb $t0, 245($s0)                 # Grava a nova quantidade
+    beqz $t0, rmv_auto_zera_tipo    # Se chegou a zero, zera o tipo também
+    j rmv_auto_fim                   # Ainda tem veículo: encerra
+
+rmv_auto_zera_tipo:                  # Nenhum veículo restante: zera o tipo
+    sb $zero, 244($s0)               # Tipo volta a 0 (AP livre para novo cadastro)
+    j rmv_auto_fim
+
+rmv_auto_nao_enc:                    # Placa não encontrada
+    la $a0, msg_auto_nao_enc         # "Falha: automovel nao encontrado"
+    jal print_string_mmio
+    j rmv_auto_fim
+
+rmv_auto_invalido:                   # AP digitado fora do intervalo do condomínio
+    la $a0, msg_ap_invalido
+    jal print_string_mmio
+
+rmv_auto_fim:                        # Encerramento do rmvAuto
+    lw $ra, 0($sp)
+    lw $s0, 4($sp)
+    lw $s1, 8($sp)
+    addi $sp, $sp, 12
     jr $ra
